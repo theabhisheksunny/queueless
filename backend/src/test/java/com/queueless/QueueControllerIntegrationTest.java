@@ -100,11 +100,12 @@ public class QueueControllerIntegrationTest {
                 .andExpect(jsonPath("$.tokenNumber").value("002"))
                 .andExpect(jsonPath("$.peopleAhead").value(1));
 
-        // 5. Owner Calls Next Customer (#001)
+        // 5. Owner Calls Next Customer (#001) - Must be CALLED, but NOT yet SERVING
         mockMvc.perform(post("/api/queue/customers/next")
                         .header("Authorization", "Bearer " + ownerJwtToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.customers[0].status").value("CALLED"));
+                .andExpect(jsonPath("$.customers[0].status").value("CALLED"))
+                .andExpect(jsonPath("$.currentlyServingToken").doesNotExist());
 
         // Get customer 1 ID from dashboard
         var dashRes = mockMvc.perform(get("/api/queue/dashboard")
@@ -120,11 +121,12 @@ public class QueueControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.currentlyServingToken").value("001"));
 
-        // 7. Owner Completes Customer 1
+        // 7. Owner Completes Customer 1 - disappears from currently serving
         mockMvc.perform(patch("/api/queue/customers/" + cust1Id + "/status?status=COMPLETED")
                         .header("Authorization", "Bearer " + ownerJwtToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.customers[0].status").value("COMPLETED"));
+                .andExpect(jsonPath("$.customers[0].status").value("COMPLETED"))
+                .andExpect(jsonPath("$.currentlyServingToken").doesNotExist());
 
         // 8. Customer 2 Now Has 0 People Ahead
         mockMvc.perform(get("/api/public/queue/track/" + trackingToken))

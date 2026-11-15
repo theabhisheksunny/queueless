@@ -179,18 +179,25 @@ public class ShopActiveQueue {
     }
 
     /**
-     * Returns the customer currently SERVING, or CALLED if no one is SERVING.
+     * Returns the customers currently in SERVING status.
+     * Note requirement: Do NOT include CALLED customers as currently serving.
      */
-    public synchronized QueueCustomerSummary getCurrentlyServingCustomer() {
-        // Priority 1: Customer in SERVING
+    public synchronized List<QueueCustomerSummary> getCurrentlyServingCustomers() {
+        List<QueueCustomerSummary> serving = new ArrayList<>();
         for (QueueCustomerSummary c : customerList) {
             if (c.getStatus() == CustomerQueueStatus.SERVING) {
-                return c;
+                serving.add(c);
             }
         }
-        // Priority 2: Customer in CALLED
+        return Collections.unmodifiableList(serving);
+    }
+
+    /**
+     * Returns the first customer currently in SERVING status, or null if none.
+     */
+    public synchronized QueueCustomerSummary getCurrentlyServingCustomer() {
         for (QueueCustomerSummary c : customerList) {
-            if (c.getStatus() == CustomerQueueStatus.CALLED) {
+            if (c.getStatus() == CustomerQueueStatus.SERVING) {
                 return c;
             }
         }
@@ -223,8 +230,17 @@ public class ShopActiveQueue {
             return null;
         }
 
-        QueueCustomerSummary currentServing = getCurrentlyServingCustomer();
-        String servingToken = currentServing != null ? currentServing.getTokenNumber() : "-";
+        List<QueueCustomerSummary> currentServingList = getCurrentlyServingCustomers();
+        String servingToken;
+        if (currentServingList.isEmpty()) {
+            servingToken = "-";
+        } else if (currentServingList.size() == 1) {
+            servingToken = currentServingList.get(0).getTokenNumber();
+        } else {
+            servingToken = currentServingList.stream()
+                    .map(QueueCustomerSummary::getTokenNumber)
+                    .collect(java.util.stream.Collectors.joining(", "));
+        }
 
         int peopleAhead = 0;
         if (target.getStatus() == CustomerQueueStatus.WAITING) {

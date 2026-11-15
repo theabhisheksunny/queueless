@@ -20,6 +20,7 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class QueueService {
@@ -379,15 +380,19 @@ public class QueueService {
                     session.getId(), CustomerQueueStatus.WAITING, customer.getTokenSequence());
         }
 
-        // Current serving
-        QueueCustomer serving = customerRepository.findFirstByQueueSessionIdAndStatusOrderByTokenSequenceAsc(
-                session.getId(), CustomerQueueStatus.SERVING).orElse(null);
-        if (serving == null) {
-            serving = customerRepository.findFirstByQueueSessionIdAndStatusOrderByTokenSequenceAsc(
-                    session.getId(), CustomerQueueStatus.CALLED).orElse(null);
+        // Current serving (DB fallback - only strict SERVING status)
+        List<QueueCustomer> servingList = customerRepository.findByQueueSessionIdAndStatusOrderByTokenSequenceAsc(
+                session.getId(), CustomerQueueStatus.SERVING);
+        String servingToken = "-";
+        if (!servingList.isEmpty()) {
+            if (servingList.size() == 1) {
+                servingToken = servingList.get(0).getTokenNumber();
+            } else {
+                servingToken = servingList.stream()
+                        .map(QueueCustomer::getTokenNumber)
+                        .collect(Collectors.joining(", "));
+            }
         }
-
-        String servingToken = serving != null ? serving.getTokenNumber() : "-";
         int waitTime = (int) peopleAhead * shop.getAvgServiceDurationMinutes();
 
         return new CustomerPositionInfo(
@@ -427,10 +432,20 @@ public class QueueService {
         response.setTotalCustomers(activeQueue.getTotalCount());
         response.setWaitingCustomers(activeQueue.getWaitingCount());
 
-        QueueCustomerSummary serving = activeQueue.getCurrentlyServingCustomer();
-        if (serving != null) {
-            response.setCurrentlyServingToken(serving.getTokenNumber());
-            response.setCurrentlyServingName(serving.getCustomerName());
+        List<QueueCustomerSummary> servingList = activeQueue.getCurrentlyServingCustomers();
+        response.setCurrentlyServingCustomers(servingList);
+        if (!servingList.isEmpty()) {
+            if (servingList.size() == 1) {
+                response.setCurrentlyServingToken(servingList.get(0).getTokenNumber());
+                response.setCurrentlyServingName(servingList.get(0).getCustomerName());
+            } else {
+                response.setCurrentlyServingToken(servingList.stream()
+                        .map(QueueCustomerSummary::getTokenNumber)
+                        .collect(Collectors.joining(", ")));
+                response.setCurrentlyServingName(servingList.stream()
+                        .map(QueueCustomerSummary::getCustomerName)
+                        .collect(Collectors.joining(", ")));
+            }
         } else {
             response.setCurrentlyServingToken(null);
             response.setCurrentlyServingName(null);

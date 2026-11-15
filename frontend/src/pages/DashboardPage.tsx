@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api, type QueueDashboardData, type CustomerSummary } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -159,6 +159,11 @@ export const DashboardPage: React.FC = () => {
     }
   };
 
+  // Authoritative currently serving customers derived directly from latest state
+  const servingCustomers = useMemo(() => {
+    return (dashboard?.customers || []).filter((c) => c.status === 'SERVING');
+  }, [dashboard?.customers]);
+
   // Filter customers by selected tab
   const filteredCustomers = (dashboard?.customers || []).filter((c) => {
     if (filterTab === 'active') {
@@ -168,7 +173,7 @@ export const DashboardPage: React.FC = () => {
       return c.status === 'WAITING';
     }
     if (filterTab === 'serving') {
-      return ['CALLED', 'SERVING'].includes(c.status);
+      return c.status === 'SERVING';
     }
     if (filterTab === 'history') {
       return ['COMPLETED', 'SKIPPED', 'NO_SHOW', 'LEFT', 'CANCELLED'].includes(c.status);
@@ -288,20 +293,57 @@ export const DashboardPage: React.FC = () => {
           </div>
 
           {/* Card 2: Currently Serving */}
-          <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              {t('currentlyServing')}
-            </span>
-            <div className="mt-3 flex items-center justify-between">
-              <div>
-                <span className="text-xl sm:text-2xl font-black text-brand-600">
-                  {dashboard?.currentlyServingToken ? `#${dashboard.currentlyServingToken}` : '-'}
+          <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col justify-between" data-testid="currently-serving-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                {t('currentlyServing')}
+              </span>
+              {servingCustomers.length > 0 && (
+                <span
+                  data-testid="serving-badge"
+                  className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200 tracking-wider"
+                >
+                  SERVING
                 </span>
-                <p className="text-xs text-slate-500 font-medium truncate max-w-[120px]">
-                  {dashboard?.currentlyServingName || t('noneServing')}
-                </p>
+              )}
+            </div>
+            <div className="mt-3 flex items-center justify-between">
+              <div className="flex-1 min-w-0 pr-2">
+                {servingCustomers.length === 0 ? (
+                  <>
+                    <span className="text-xl sm:text-2xl font-black text-slate-400" data-testid="serving-token">-</span>
+                    <p className="text-xs text-slate-400 font-medium truncate" data-testid="serving-name">
+                      {t('noneServing')}
+                    </p>
+                  </>
+                ) : servingCustomers.length === 1 ? (
+                  <>
+                    <span className="text-xl sm:text-2xl font-black text-emerald-600" data-testid="serving-token">
+                      #{servingCustomers[0].tokenNumber}
+                    </span>
+                    <p className="text-xs text-slate-700 font-bold truncate" data-testid="serving-name">
+                      {servingCustomers[0].customerName}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-1.5 flex-wrap" data-testid="serving-token">
+                      {servingCustomers.map((c) => (
+                        <span
+                          key={c.id}
+                          className="text-base sm:text-lg font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200"
+                        >
+                          #{c.tokenNumber}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-700 font-bold truncate mt-1" data-testid="serving-name">
+                      {servingCustomers.map((c) => c.customerName).join(', ')}
+                    </p>
+                  </>
+                )}
               </div>
-              <div className="w-10 h-10 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
                 <Sparkles className="w-5 h-5" />
               </div>
             </div>
@@ -412,7 +454,7 @@ export const DashboardPage: React.FC = () => {
                     : 'text-slate-500 hover:text-slate-900'
                 }`}
               >
-                {t('tabServing')}
+                {t('tabServing')} ({servingCustomers.length})
               </button>
               <button
                 onClick={() => setFilterTab('history')}
@@ -447,6 +489,8 @@ export const DashboardPage: React.FC = () => {
                 return (
                   <div
                     key={cust.id}
+                    data-testid="customer-row"
+                    data-customer-name={cust.customerName}
                     className={`p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors ${
                       isCurrentServing
                         ? 'bg-emerald-50/40'

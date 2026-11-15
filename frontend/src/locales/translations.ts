@@ -47,7 +47,7 @@ export const translations = {
     // Tabs & Filters
     tabAll: 'All Active',
     tabWaiting: 'Waiting',
-    tabServing: 'Serving / Called',
+    tabServing: 'Serving',
     tabCompleted: 'Completed / History',
     
     // Table / Card Columns
@@ -212,7 +212,7 @@ export const translations = {
     // Tabs & Filters
     tabAll: 'सभी सक्रिय',
     tabWaiting: 'प्रतीक्षारत (Waiting)',
-    tabServing: 'बुलाया / सेवारत',
+    tabServing: 'सेवारत (Serving)',
     tabCompleted: 'पूर्ण / इतिहास',
     
     // Table / Card Columns

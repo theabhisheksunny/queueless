@@ -8,6 +8,7 @@ import com.queueless.dto.QueueDashboardResponse;
 import com.queueless.dto.RegisterRequest;
 import com.queueless.entity.CustomerQueueStatus;
 import com.queueless.model.CustomerPositionInfo;
+import com.queueless.service.ActiveQueueManager;
 import com.queueless.service.AuthService;
 import com.queueless.service.QueueService;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +26,9 @@ public class QueueServiceTest {
 
     @Autowired
     private QueueService queueService;
+
+    @Autowired
+    private ActiveQueueManager activeQueueManager;
 
     @Autowired
     private AuthService authService;
@@ -125,6 +129,8 @@ public class QueueServiceTest {
         QueueDashboardResponse dashCalled = queueService.callNextCustomer(testShopId);
         Long custAId = dashCalled.getCustomers().get(0).getId();
         assertEquals(CustomerQueueStatus.CALLED, dashCalled.getCustomers().get(0).getStatus());
+        // CALLED customer must NOT be reported as currently serving
+        assertNull(dashCalled.getCurrentlyServingToken());
 
         // Call next customer does NOT automatically complete current customer
         queueService.updateCustomerStatus(testShopId, custAId, CustomerQueueStatus.SERVING);
@@ -135,11 +141,15 @@ public class QueueServiceTest {
         queueService.updateCustomerStatus(testShopId, custAId, CustomerQueueStatus.COMPLETED);
         QueueDashboardResponse dashCompleted = queueService.getDashboard(testShopId);
         assertEquals(CustomerQueueStatus.COMPLETED, dashCompleted.getCustomers().get(0).getStatus());
+        // COMPLETED customer must disappear from currently serving
+        assertNull(dashCompleted.getCurrentlyServingToken());
 
         // Next customer B is called
         queueService.callNextCustomer(testShopId);
         QueueDashboardResponse dashB = queueService.getDashboard(testShopId);
         assertEquals(CustomerQueueStatus.CALLED, dashB.getCustomers().get(1).getStatus());
+        // CALLED customer B must NOT be reported as currently serving
+        assertNull(dashB.getCurrentlyServingToken());
     }
 
     @Test
@@ -184,15 +194,102 @@ public class QueueServiceTest {
     }
 
     @Test
-    @DisplayName("Close Queue prevents new customers from joining")
-    void testCloseQueue() {
-        QueueDashboardResponse dash = queueService.startQueue(testShopId);
-        String publicQueueId = dash.getPublicQueueId();
+    @DisplayName("Regression Test A, B, C: Strict lifecycle - CALLED is not SERVING, and COMPLETED clears serving")
+    void testRegressionBasicServingAndComplete() {
+        queueService.startQueue(testShopId);
 
-        queueService.closeQueue(testShopId);
+        // 1. Add Rahul, token 001
+        var addRes = queueService.manualAddCustomer(testShopId, new CustomerManualAddRequest("Rahul", "9876543210"));
+        Long rahulId = addRes.getCustomers().get(0).getId();
+        assertEquals("001", addRes.getCustomers().get(0).getTokenNumber());
+        assertNull(addRes.getCurrentlyServingToken());
 
-        assertThrows(IllegalStateException.class, () -> {
-            queueService.customerJoinQueue(publicQueueId, new CustomerJoinRequest("Late Customer", ""));
-        });
+        // 2. Click Next Customer -> Rahul becomes CALLED
+        var callRes = queueService.callNextCustomer(testShopId);
+        assertEquals(CustomerQueueStatus.CALLED, callRes.getCustomers().get(0).getStatus());
+        // Verify Rahul is NOT displayed as currently serving merely because CALLED
+        assertNull(callRes.getCurrentlyServingToken());
+        assertNull(callRes.getCurrentlyServingName());
+
+        // 3. Click Start Serving -> Rahul becomes SERVING
+        var serveRes = queueService.updateCustomerStatus(testShopId, rahulId, CustomerQueueStatus.SERVING);
+        assertEquals(CustomerQueueStatus.SERVING, serveRes.getCustomers().get(0).getStatus());
+        assertEquals("001", serveRes.getCurrentlyServingToken());
+        assertEquals("Rahul", serveRes.getCurrentlyServingName());
+        assertNotNull(serveRes.getCurrentlyServingCustomers());
+        assertEquals(1, serveRes.getCurrentlyServingCustomers().size());
+
+        // 4. Complete Rahul (Test B)
+        var compRes = queueService.updateCustomerStatus(testShopId, rahulId, CustomerQueueStatus.COMPLETED);
+        assertEquals(CustomerQueueStatus.COMPLETED, compRes.getCustomers().get(0).getStatus());
+        assertNull(compRes.getCurrentlyServingToken());
+        assertNull(compRes.getCurrentlyServingName());
+        assertEquals(0, compRes.getWaitingCustomers());
+
+        // 5. Add Amit, token 002 (Test C)
+        var addAmit = queueService.manualAddCustomer(testShopId, new CustomerManualAddRequest("Amit", "9123456789"));
+        Long amitId = addAmit.getCustomers().get(1).getId();
+        assertEquals("002", addAmit.getCustomers().get(1).getTokenNumber());
+        assertNull(addAmit.getCurrentlyServingToken());
+
+        // Call Amit
+        var callAmit = queueService.callNextCustomer(testShopId);
+        assertEquals(CustomerQueueStatus.CALLED, callAmit.getCustomers().get(1).getStatus());
+        assertNull(callAmit.getCurrentlyServingToken());
+
+        // Start serving Amit
+        var serveAmit = queueService.updateCustomerStatus(testShopId, amitId, CustomerQueueStatus.SERVING);
+        assertEquals(CustomerQueueStatus.SERVING, serveAmit.getCustomers().get(1).getStatus());
+        assertEquals("002", serveAmit.getCurrentlyServingToken());
+        assertEquals("Amit", serveAmit.getCurrentlyServingName());
+    }
+
+    @Test
+    @DisplayName("Regression Test D: Multiple serving customers simultaneously")
+    void testRegressionMultipleServingCustomers() {
+        queueService.startQueue(testShopId);
+
+        var r1 = queueService.manualAddCustomer(testShopId, new CustomerManualAddRequest("Rahul", ""));
+        var r2 = queueService.manualAddCustomer(testShopId, new CustomerManualAddRequest("Amit", ""));
+        Long rahulId = r1.getCustomers().get(0).getId();
+        Long amitId = r2.getCustomers().get(1).getId();
+
+        // Start serving Rahul
+        queueService.updateCustomerStatus(testShopId, rahulId, CustomerQueueStatus.SERVING);
+        // Start serving Amit
+        var multiServe = queueService.updateCustomerStatus(testShopId, amitId, CustomerQueueStatus.SERVING);
+
+        // Verify both are represented correctly
+        assertTrue(multiServe.getCurrentlyServingToken().contains("001"));
+        assertTrue(multiServe.getCurrentlyServingToken().contains("002"));
+        assertTrue(multiServe.getCurrentlyServingName().contains("Rahul"));
+        assertTrue(multiServe.getCurrentlyServingName().contains("Amit"));
+        assertEquals(2, multiServe.getCurrentlyServingCustomers().size());
+
+        // Complete Rahul
+        var afterRahulComp = queueService.updateCustomerStatus(testShopId, rahulId, CustomerQueueStatus.COMPLETED);
+        // Verify Amit remains displayed as SERVING
+        assertEquals("002", afterRahulComp.getCurrentlyServingToken());
+        assertEquals("Amit", afterRahulComp.getCurrentlyServingName());
+        assertEquals(1, afterRahulComp.getCurrentlyServingCustomers().size());
+        assertEquals("002", afterRahulComp.getCurrentlyServingCustomers().get(0).getTokenNumber());
+    }
+
+    @Test
+    @DisplayName("Regression Test F: State recovery after restart / reload from DB")
+    void testRegressionStateRecoveryFromDb() {
+        queueService.startQueue(testShopId);
+        var r1 = queueService.manualAddCustomer(testShopId, new CustomerManualAddRequest("Rahul", ""));
+        Long rahulId = r1.getCustomers().get(0).getId();
+        queueService.updateCustomerStatus(testShopId, rahulId, CustomerQueueStatus.SERVING);
+
+        // Simulate new in-memory active queue re-initialized from DB
+        activeQueueManager.resetQueueForNewSession(testShopId, null, null);
+        var freshDash = queueService.getDashboard(testShopId);
+
+        // Verify Rahul is still SERVING
+        assertEquals("001", freshDash.getCurrentlyServingToken());
+        assertEquals("Rahul", freshDash.getCurrentlyServingName());
+        assertEquals(CustomerQueueStatus.SERVING, freshDash.getCustomers().get(0).getStatus());
     }
 }

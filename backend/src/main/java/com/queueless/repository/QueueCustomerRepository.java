@@ -13,6 +13,7 @@ import java.util.Optional;
 public interface QueueCustomerRepository extends JpaRepository<QueueCustomer, Long> {
     Optional<QueueCustomer> findByTrackingToken(String trackingToken);
     List<QueueCustomer> findByQueueSessionIdOrderByTokenSequenceAsc(Long queueSessionId);
+    List<QueueCustomer> findByQueueSessionIdAndStatusOrderByTokenSequenceAsc(Long queueSessionId, CustomerQueueStatus status);
     List<QueueCustomer> findByQueueSessionIdAndStatusInOrderByTokenSequenceAsc(Long queueSessionId, Collection<CustomerQueueStatus> statuses);
     Optional<QueueCustomer> findFirstByQueueSessionIdAndStatusOrderByTokenSequenceAsc(Long queueSessionId, CustomerQueueStatus status);
     long countByQueueSessionIdAndStatus(Long queueSessionId, CustomerQueueStatus status);

@@ -306,8 +306,11 @@ export const CustomerTrackPage: React.FC = () => {
               <div className="p-4 text-center">
                 <p className="text-[11px] font-bold text-slate-400 uppercase">Now Serving</p>
                 <p className="text-xl sm:text-2xl font-black text-brand-600 mt-1">
-                  {positionInfo.currentlyServingToken !== '-'
-                    ? `#${positionInfo.currentlyServingToken}`
+                  {positionInfo.currentlyServingToken && positionInfo.currentlyServingToken !== '-'
+                    ? positionInfo.currentlyServingToken
+                        .split(', ')
+                        .map((t) => (t.startsWith('#') ? t : `#${t}`))
+                        .join(', ')
                     : '-'}
                 </p>
               </div>

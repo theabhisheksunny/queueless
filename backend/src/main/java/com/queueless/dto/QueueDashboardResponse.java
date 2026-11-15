@@ -20,6 +20,7 @@ public class QueueDashboardResponse {
     private int waitingCustomers;
     private String currentlyServingToken;
     private String currentlyServingName;
+    private List<QueueCustomerSummary> currentlyServingCustomers;
 
     private List<QueueCustomerSummary> customers;
 
@@ -123,6 +124,14 @@ public class QueueDashboardResponse {
 
     public void setCurrentlyServingName(String currentlyServingName) {
         this.currentlyServingName = currentlyServingName;
+    }
+
+    public List<QueueCustomerSummary> getCurrentlyServingCustomers() {
+        return currentlyServingCustomers;
+    }
+
+    public void setCurrentlyServingCustomers(List<QueueCustomerSummary> currentlyServingCustomers) {
+        this.currentlyServingCustomers = currentlyServingCustomers;
     }
 
     public List<QueueCustomerSummary> getCustomers() {

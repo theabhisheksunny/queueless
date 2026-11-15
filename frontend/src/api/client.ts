@@ -28,6 +28,7 @@ export interface QueueDashboardData {
   waitingCustomers: number;
   currentlyServingToken?: string;
   currentlyServingName?: string;
+  currentlyServingCustomers?: CustomerSummary[];
   customers: CustomerSummary[];
   subscriptionStatus: 'ACTIVE' | 'EXPIRED' | 'PENDING_APPROVAL';
   subscriptionDaysRemaining: number;

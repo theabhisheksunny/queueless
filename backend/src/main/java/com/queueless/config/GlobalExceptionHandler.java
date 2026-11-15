@@ -1,5 +1,9 @@
 package com.queueless.config;
 
+import com.queueless.exception.SubscriptionRequiredException;
+import com.queueless.exception.TokenExpiredException;
+import com.queueless.exception.TrialAlreadyConsumedException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -35,6 +39,38 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
         return createErrorResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    @ExceptionHandler(TokenExpiredException.class)
+    public ResponseEntity<Map<String, Object>> handleTokenExpired(TokenExpiredException ex) {
+        return createErrorResponse(HttpStatus.GONE, ex.getMessage());
+    }
+
+    @ExceptionHandler(SubscriptionRequiredException.class)
+    public ResponseEntity<Map<String, Object>> handleSubscriptionRequired(SubscriptionRequiredException ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("timestamp", LocalDateTime.now());
+        body.put("status", HttpStatus.PAYMENT_REQUIRED.value());
+        body.put("error", "Payment Required");
+        body.put("code", "SUBSCRIPTION_REQUIRED");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED).body(body);
+    }
+
+    @ExceptionHandler(TrialAlreadyConsumedException.class)
+    public ResponseEntity<Map<String, Object>> handleTrialAlreadyConsumed(TrialAlreadyConsumedException ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("timestamp", LocalDateTime.now());
+        body.put("status", HttpStatus.CONFLICT.value());
+        body.put("error", "Trial Already Consumed");
+        body.put("code", "TRIAL_ALREADY_CONSUMED");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<Map<String, Object>> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        return createErrorResponse(HttpStatus.CONFLICT, "A registration or trial record already exists for this verified mobile identity.");
     }
 
     @ExceptionHandler(IllegalStateException.class)

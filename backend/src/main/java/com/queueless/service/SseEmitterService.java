@@ -9,8 +9,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.*;
 
 @Service
 public class SseEmitterService {
@@ -23,6 +22,12 @@ public class SseEmitterService {
 
     // Customer tracking emitters by trackingToken
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<SseEmitter>> customerEmitters = new ConcurrentHashMap<>();
+
+    private final ScheduledExecutorService expirationScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "sse-expiration-worker");
+        t.setDaemon(true);
+        return t;
+    });
 
     public SseEmitter createOwnerEmitter(Long shopId) {
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT);
@@ -81,6 +86,28 @@ public class SseEmitterService {
             if (list.isEmpty()) {
                 customerEmitters.remove(trackingToken);
             }
+        }
+    }
+
+    public void closeCustomerEmitters(String trackingToken) {
+        if (trackingToken == null) return;
+        CopyOnWriteArrayList<SseEmitter> list = customerEmitters.remove(trackingToken);
+        if (list != null) {
+            for (SseEmitter emitter : list) {
+                try {
+                    emitter.complete();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
+    public void scheduleEmitterExpiration(String trackingToken, long delayMillis) {
+        if (trackingToken == null) return;
+        if (delayMillis <= 0) {
+            closeCustomerEmitters(trackingToken);
+        } else {
+            expirationScheduler.schedule(() -> closeCustomerEmitters(trackingToken), delayMillis, TimeUnit.MILLISECONDS);
         }
     }
 

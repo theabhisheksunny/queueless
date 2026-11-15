@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
-import { QrCode, Mail, Lock, User, Store, Clock, Phone, ArrowRight, Sparkles, Globe } from 'lucide-react';
+import { api } from '../api/client';
+import { QrCode, Mail, Lock, User, Store, Clock, Phone, ArrowRight, Sparkles, Globe, KeyRound, CheckCircle2 } from 'lucide-react';
 
 const CATEGORIES = [
   'Barber Shop',
@@ -20,36 +21,104 @@ export const LoginPage: React.FC = () => {
   const { language, toggleLanguage, t } = useLanguage();
   const navigate = useNavigate();
 
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [mode, setMode] = useState<'login' | 'register' | 'recover'>('login');
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Form states
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
   const [shopName, setShopName] = useState('');
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [avgServiceDurationMinutes, setAvgServiceDurationMinutes] = useState(15);
 
+  // OTP states
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpCooldown, setOtpCooldown] = useState(0);
+  const [testOtp, setTestOtp] = useState<string | null>(null);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+
+  // Cooldown countdown timer
+  useEffect(() => {
+    if (otpCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setOtpCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [otpCooldown]);
+
+  const handleSendOtp = async () => {
+    if (!phone.trim()) {
+      setError('Please enter a valid 10-digit Indian mobile number to receive OTP.');
+      return;
+    }
+    setError(null);
+    setIsSendingOtp(true);
+    try {
+      const res = await api.sendOtp(phone.trim());
+      setOtpSent(true);
+      setOtpCooldown(res.cooldownSeconds || 60);
+      if (res.testOtp) {
+        setTestOtp(res.testOtp);
+        setOtp(res.testOtp);
+      }
+      setSuccessMsg(`OTP sent to ${phone.trim()}`);
+    } catch (err: any) {
+      setError(err.message || 'Failed to send OTP.');
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccessMsg(null);
+
     try {
       if (mode === 'login') {
         await login({ email, password });
-      } else {
+        navigate('/');
+      } else if (mode === 'register') {
+        if (!otp.trim()) {
+          // Auto-trigger OTP send if not already sent
+          if (!otpSent) {
+            await handleSendOtp();
+            return;
+          }
+          setError('Please enter the 6-digit OTP sent to your verified mobile number.');
+          return;
+        }
+
         await register({
           fullName,
           email,
           password,
           phone,
+          otp: otp.trim(),
           shopName,
           category,
           avgServiceDurationMinutes,
+          deviceFingerprint: navigator.userAgent,
         });
+        navigate('/');
+      } else if (mode === 'recover') {
+        if (!phone.trim() || !otp.trim() || !newPassword.trim()) {
+          setError('Phone, OTP, and new password are all required.');
+          return;
+        }
+        await api.resetPassword({
+          phone: phone.trim(),
+          otp: otp.trim(),
+          newPassword: newPassword.trim(),
+        });
+        setSuccessMsg(t('passwordResetSuccess'));
+        setMode('login');
       }
-      navigate('/');
     } catch (err: any) {
       setError(err.message || 'Authentication failed');
     }
@@ -94,41 +163,68 @@ export const LoginPage: React.FC = () => {
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-6 sm:px-10 rounded-3xl shadow-xl shadow-slate-200/60 border border-slate-100">
           {/* Mode Switch Tabs */}
-          <div className="flex p-1 mb-6 rounded-2xl bg-slate-100/90 text-sm font-semibold">
-            <button
-              type="button"
-              onClick={() => {
-                setMode('login');
-                setError(null);
-              }}
-              className={`flex-1 py-2.5 rounded-xl transition-all ${
-                mode === 'login'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              {t('signIn')}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMode('register');
-                setError(null);
-              }}
-              className={`flex-1 py-2.5 rounded-xl transition-all ${
-                mode === 'register'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              {t('signUp')}
-            </button>
-          </div>
+          {mode !== 'recover' ? (
+            <div className="flex p-1 mb-6 rounded-2xl bg-slate-100/90 text-sm font-semibold">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('login');
+                  setError(null);
+                  setSuccessMsg(null);
+                }}
+                className={`flex-1 py-2.5 rounded-xl transition-all ${
+                  mode === 'login'
+                    ? 'bg-white text-slate-900 shadow-sm font-bold'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {t('signIn')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('register');
+                  setError(null);
+                  setSuccessMsg(null);
+                }}
+                className={`flex-1 py-2.5 rounded-xl transition-all ${
+                  mode === 'register'
+                    ? 'bg-white text-slate-900 shadow-sm font-bold'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {t('signUp')}
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between mb-6 pb-2 border-b border-slate-100">
+              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-brand-600" />
+                {t('resetPassword')}
+              </h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('login');
+                  setError(null);
+                }}
+                className="text-xs text-brand-600 font-bold hover:underline"
+              >
+                Back to Login
+              </button>
+            </div>
+          )}
 
-          {/* Error Message */}
+          {/* Alerts */}
           {error && (
             <div className="mb-4 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm font-medium">
               {error}
+            </div>
+          )}
+          {successMsg && (
+            <div className="mb-4 p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-medium flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{successMsg}</span>
             </div>
           )}
 
@@ -187,18 +283,59 @@ export const LoginPage: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Mobile Phone Number with Send OTP Button */}
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                    {t('phone')}
+                    {t('phone')} <span className="text-rose-500">*</span>
                   </label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Phone className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="tel"
+                        required
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="e.g. 9876543210"
+                        className="w-full pl-11 pr-3 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSendOtp}
+                      disabled={isSendingOtp || otpCooldown > 0 || !phone.trim()}
+                      className="px-4 py-3 rounded-2xl bg-brand-50 hover:bg-brand-100/80 border border-brand-200/80 text-brand-700 font-bold text-xs shrink-0 transition-colors disabled:opacity-50"
+                    >
+                      {otpCooldown > 0 ? `${t('resendIn')} ${otpCooldown}s` : isSendingOtp ? 'Sending...' : t('sendOtp')}
+                    </button>
+                  </div>
+                </div>
+
+                {/* OTP Input Field */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
+                      {t('enterOtp')} <span className="text-rose-500">*</span>
+                    </label>
+                    {testOtp && (
+                      <button
+                        type="button"
+                        onClick={() => setOtp(testOtp)}
+                        className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-200 transition-colors"
+                      >
+                        Demo OTP: {testOtp}
+                      </button>
+                    )}
+                  </div>
                   <div className="relative">
-                    <Phone className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <KeyRound className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                     <input
-                      type="tel"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="e.g. 9876543210"
-                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
+                      type="text"
+                      maxLength={6}
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value)}
+                      placeholder="e.g. 123456"
+                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-mono font-bold tracking-widest transition-all"
                     />
                   </div>
                 </div>
@@ -222,46 +359,147 @@ export const LoginPage: React.FC = () => {
               </>
             )}
 
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                {t('email')} <span className="text-rose-500">*</span>
-              </label>
-              <div className="relative">
-                <Mail className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="owner@example.com"
-                  className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
-                />
-              </div>
-            </div>
+            {mode === 'recover' ? (
+              <>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    {t('phone')} <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Phone className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="tel"
+                        required
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="e.g. 9876543210"
+                        className="w-full pl-11 pr-3 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSendOtp}
+                      disabled={isSendingOtp || otpCooldown > 0 || !phone.trim()}
+                      className="px-4 py-3 rounded-2xl bg-brand-50 hover:bg-brand-100/80 border border-brand-200/80 text-brand-700 font-bold text-xs shrink-0 transition-colors disabled:opacity-50"
+                    >
+                      {otpCooldown > 0 ? `${t('resendIn')} ${otpCooldown}s` : isSendingOtp ? 'Sending...' : t('sendOtp')}
+                    </button>
+                  </div>
+                </div>
 
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                {t('password')} <span className="text-rose-500">*</span>
-              </label>
-              <div className="relative">
-                <Lock className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
-                />
-              </div>
-            </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
+                      {t('enterOtp')} <span className="text-rose-500">*</span>
+                    </label>
+                    {testOtp && (
+                      <button
+                        type="button"
+                        onClick={() => setOtp(testOtp)}
+                        className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-200 transition-colors"
+                      >
+                        Demo OTP: {testOtp}
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <KeyRound className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      maxLength={6}
+                      required
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value)}
+                      placeholder="e.g. 123456"
+                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-mono font-bold tracking-widest transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    {t('newPassword')} <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <Lock className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="password"
+                      required
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    {t('email')} <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="owner@example.com"
+                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
+                      {t('password')} <span className="text-rose-500">*</span>
+                    </label>
+                    {mode === 'login' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMode('recover');
+                          setError(null);
+                        }}
+                        className="text-xs text-brand-600 font-semibold hover:underline"
+                      >
+                        {t('forgotPassword')}
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <Lock className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
 
             <button
               type="submit"
               disabled={isLoading}
               className="w-full mt-2 py-3.5 px-4 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-base shadow-lg shadow-brand-500/25 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
             >
-              <span>{isLoading ? 'Processing...' : mode === 'login' ? t('loginBtn') : t('registerBtn')}</span>
+              <span>
+                {isLoading
+                  ? 'Processing...'
+                  : mode === 'login'
+                  ? t('loginBtn')
+                  : mode === 'recover'
+                  ? t('resetPassword')
+                  : t('registerBtn')}
+              </span>
               <ArrowRight className="w-5 h-5" />
             </button>
           </form>

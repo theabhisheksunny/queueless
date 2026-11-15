@@ -5,6 +5,7 @@ import com.queueless.entity.SubscriptionStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 public class SubscriptionStatusResponse {
     private SubscriptionStatus status;
@@ -18,6 +19,10 @@ public class SubscriptionStatusResponse {
     private BigDecimal monthlyPrice;
     private BigDecimal yearlyPrice;
     private String pendingPaymentReference;
+    private LocalDateTime trialStartedAt;
+    private LocalDateTime trialEndsAt;
+    private LocalDateTime trialConsumedAt;
+    private boolean trialExpired;
 
     public SubscriptionStatusResponse() {}
 
@@ -107,5 +112,37 @@ public class SubscriptionStatusResponse {
 
     public void setPendingPaymentReference(String pendingPaymentReference) {
         this.pendingPaymentReference = pendingPaymentReference;
+    }
+
+    public LocalDateTime getTrialStartedAt() {
+        return trialStartedAt;
+    }
+
+    public void setTrialStartedAt(LocalDateTime trialStartedAt) {
+        this.trialStartedAt = trialStartedAt;
+    }
+
+    public LocalDateTime getTrialEndsAt() {
+        return trialEndsAt;
+    }
+
+    public void setTrialEndsAt(LocalDateTime trialEndsAt) {
+        this.trialEndsAt = trialEndsAt;
+    }
+
+    public LocalDateTime getTrialConsumedAt() {
+        return trialConsumedAt;
+    }
+
+    public void setTrialConsumedAt(LocalDateTime trialConsumedAt) {
+        this.trialConsumedAt = trialConsumedAt;
+    }
+
+    public boolean isTrialExpired() {
+        return trialExpired;
+    }
+
+    public void setTrialExpired(boolean trialExpired) {
+        this.trialExpired = trialExpired;
     }
 }

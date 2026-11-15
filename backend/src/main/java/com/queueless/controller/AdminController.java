@@ -1,9 +1,7 @@
 package com.queueless.controller;
 
-import com.queueless.dto.AdminSettingRequest;
-import com.queueless.dto.AdminShopActivateRequest;
-import com.queueless.dto.AdminShopItem;
-import com.queueless.dto.SubscriptionStatusResponse;
+import com.queueless.dto.*;
+import com.queueless.service.CategoryChangeService;
 import com.queueless.service.SubscriptionService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -18,11 +16,14 @@ import java.util.Map;
 public class AdminController {
 
     private final SubscriptionService subscriptionService;
+    private final CategoryChangeService categoryChangeService;
     private final String adminKey;
 
     public AdminController(SubscriptionService subscriptionService,
+                           CategoryChangeService categoryChangeService,
                            @Value("${app.admin.key:admin-secret-queueless-2026}") String adminKey) {
         this.subscriptionService = subscriptionService;
+        this.categoryChangeService = categoryChangeService;
         this.adminKey = adminKey;
     }
 
@@ -67,5 +68,31 @@ public class AdminController {
         verifyAdminAccess(key);
         subscriptionService.adminActivateShop(request);
         return ResponseEntity.ok(Map.of("message", "Shop subscription activated/extended successfully."));
+    }
+
+    @GetMapping("/category-requests")
+    public ResponseEntity<List<AdminCategoryChangeItem>> listCategoryChangeRequests(
+            @RequestHeader(value = "X-Admin-Key", required = false) String key) {
+        verifyAdminAccess(key);
+        return ResponseEntity.ok(categoryChangeService.adminListRequests());
+    }
+
+    @PostMapping("/category-requests/{id}/approve")
+    public ResponseEntity<Map<String, String>> approveCategoryChangeRequest(
+            @RequestHeader(value = "X-Admin-Key", required = false) String key,
+            @PathVariable("id") Long id) {
+        verifyAdminAccess(key);
+        categoryChangeService.adminApproveRequest(id, "admin");
+        return ResponseEntity.ok(Map.of("message", "Category change request approved successfully."));
+    }
+
+    @PostMapping("/category-requests/{id}/reject")
+    public ResponseEntity<Map<String, String>> rejectCategoryChangeRequest(
+            @RequestHeader(value = "X-Admin-Key", required = false) String key,
+            @PathVariable("id") Long id,
+            @RequestBody(required = false) AdminCategoryRejectRequest request) {
+        verifyAdminAccess(key);
+        categoryChangeService.adminRejectRequest(id, request, "admin");
+        return ResponseEntity.ok(Map.of("message", "Category change request rejected."));
     }
 }

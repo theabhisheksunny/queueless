@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -151,11 +152,19 @@ public class ActiveQueueManager {
     }
 
     public QueueCustomerSummary updateCustomerStatus(Long shopId, Long customerId, CustomerQueueStatus newStatus) {
+        return updateCustomerStatus(shopId, customerId, newStatus, null);
+    }
+
+    public QueueCustomerSummary updateCustomerStatus(Long shopId, Long customerId, CustomerQueueStatus newStatus, LocalDateTime completedAt) {
         ShopActiveQueue queue = queuesByShopId.get(shopId);
         if (queue != null) {
-            return queue.updateCustomerStatus(customerId, newStatus);
+            return queue.updateCustomerStatus(customerId, newStatus, completedAt);
         }
         return null;
+    }
+
+    public java.util.Collection<ShopActiveQueue> getAllQueues() {
+        return queuesByShopId.values();
     }
 
     public QueueCustomerSummary editCustomer(Long shopId, Long customerId, String name, String phone) {

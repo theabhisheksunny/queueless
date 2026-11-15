@@ -15,6 +15,17 @@ public class ShopSettingsRequest {
 
     public ShopSettingsRequest() {}
 
+    public ShopSettingsRequest(String name, Integer avgServiceDurationMinutes) {
+        this.name = name;
+        this.avgServiceDurationMinutes = avgServiceDurationMinutes;
+    }
+
+    public ShopSettingsRequest(String name, String category, Integer avgServiceDurationMinutes) {
+        this.name = name;
+        this.category = category;
+        this.avgServiceDurationMinutes = avgServiceDurationMinutes;
+    }
+
     public String getName() {
         return name;
     }

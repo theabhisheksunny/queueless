@@ -33,11 +33,13 @@ public class QueueControllerIntegrationTest {
     void setUp() throws Exception {
         // Register unique shop owner
         String uniqueEmail = "integration" + System.currentTimeMillis() + "@queueless.com";
+        String uniquePhone = "98" + (10000000 + (int)(Math.random() * 89999999));
         RegisterRequest registerReq = new RegisterRequest();
         registerReq.setFullName("Integration Owner");
         registerReq.setEmail(uniqueEmail);
         registerReq.setPassword("password123");
-        registerReq.setPhone("9876543210");
+        registerReq.setPhone(uniquePhone);
+        registerReq.setOtp("123456");
         registerReq.setShopName("Elite Barber & Spa");
         registerReq.setCategory("Barber Shop");
         registerReq.setAvgServiceDurationMinutes(12);

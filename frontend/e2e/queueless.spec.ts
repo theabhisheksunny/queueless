@@ -301,7 +301,7 @@ test.describe('QueueLess Digital Token Register E2E Tests', () => {
     await expect(customerPage.getByText(/You are being served now|SERVING/i)).toBeVisible();
 
     // Test F: Page refresh on Owner Dashboard retains serving state
-    await page.reload();
+    await page.reload({ waitUntil: 'commit' });
     await expect(page.getByText('Customer Queue Register')).toBeVisible();
     const servingCard = page.locator('[data-testid="currently-serving-card"]');
     await expect(servingCard.getByTestId('serving-name')).toContainText(syncCustomer);
@@ -311,7 +311,7 @@ test.describe('QueueLess Digital Token Register E2E Tests', () => {
     await page.context().setOffline(true);
     await page.waitForTimeout(500);
     await page.context().setOffline(false);
-    await page.reload();
+    await page.reload({ waitUntil: 'commit' });
     await expect(servingCard.getByTestId('serving-name')).toContainText(syncCustomer);
     await expect(servingCard.getByTestId('serving-badge')).toBeVisible();
 

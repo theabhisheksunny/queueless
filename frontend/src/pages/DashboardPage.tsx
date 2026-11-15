@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { api, type QueueDashboardData, type CustomerSummary } from '../api/client';
+import { api, type QueueDashboardData, type CustomerSummary, type SubscriptionStatusData } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { Navbar } from '../components/Navbar';
@@ -8,6 +8,7 @@ import { AddCustomerModal } from '../components/AddCustomerModal';
 import { EditCustomerModal } from '../components/EditCustomerModal';
 import { QrModal } from '../components/QrModal';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   UserPlus,
   QrCode,
@@ -25,6 +26,10 @@ import {
   Edit2,
   Trash2,
   Radio,
+  AlertTriangle,
+  Copy,
+  Check,
+  Send,
 } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
@@ -38,6 +43,15 @@ export const DashboardPage: React.FC = () => {
   const [filterTab, setFilterTab] = useState<'active' | 'waiting' | 'serving' | 'history'>('active');
   const [sseConnected, setSseConnected] = useState(false);
 
+  const [isSubscriptionExpired, setIsSubscriptionExpired] = useState(false);
+  const [subData, setSubData] = useState<SubscriptionStatusData | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
+  const [utrNumber, setUtrNumber] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+  const [paymentSuccessMsg, setPaymentSuccessMsg] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
@@ -50,12 +64,59 @@ export const DashboardPage: React.FC = () => {
       const data = await api.getDashboard();
       setDashboard(data);
       setError(null);
+      setIsSubscriptionExpired(false);
     } catch (err: any) {
+      if (
+        err.status === 402 ||
+        err.message?.includes('subscription') ||
+        err.message?.includes('trial') ||
+        err.message?.includes('Payment Required')
+      ) {
+        setIsSubscriptionExpired(true);
+        try {
+          const sub = await api.getSubscriptionStatus();
+          setSubData(sub);
+          if (sub.pendingPaymentReference) {
+            setUtrNumber(sub.pendingPaymentReference);
+          }
+        } catch {}
+      }
       setError(err.message || 'Failed to load queue dashboard');
     } finally {
       setIsLoading(false);
     }
   }, []);
+
+  const handleCopyUpi = () => {
+    if (subData?.configuredUpiId) {
+      navigator.clipboard.writeText(subData.configuredUpiId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleSubmitPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!utrNumber.trim()) {
+      setPaymentError('Please enter your 12-digit UPI Reference Number (UTR)');
+      return;
+    }
+    setIsSubmittingPayment(true);
+    setPaymentError(null);
+    setPaymentSuccessMsg(null);
+    try {
+      const updated = await api.submitSubscriptionPayment({
+        planType: selectedPlan,
+        paymentReference: utrNumber.trim(),
+      });
+      setSubData(updated);
+      setPaymentSuccessMsg('Payment reference submitted successfully! Platform admin will verify and activate your subscription shortly.');
+    } catch (err: any) {
+      setPaymentError(err.message || 'Failed to submit payment reference');
+    } finally {
+      setIsSubmittingPayment(false);
+    }
+  };
 
   // Fetch initial dashboard and setup Server-Sent Events (SSE)
   useEffect(() => {
@@ -167,7 +228,7 @@ export const DashboardPage: React.FC = () => {
   // Filter customers by selected tab
   const filteredCustomers = (dashboard?.customers || []).filter((c) => {
     if (filterTab === 'active') {
-      return ['WAITING', 'CALLED', 'SERVING'].includes(c.status);
+      return ['WAITING', 'CALLED', 'SERVING', 'SKIPPED'].includes(c.status);
     }
     if (filterTab === 'waiting') {
       return c.status === 'WAITING';
@@ -198,6 +259,159 @@ export const DashboardPage: React.FC = () => {
           <QrCode className="w-6 h-6 animate-pulse" />
         </div>
         <p className="text-slate-600 font-semibold text-base">Loading QueueLess Dashboard...</p>
+      </div>
+    );
+  }
+
+  if (isSubscriptionExpired) {
+    const currentPrice = selectedPlan === 'YEARLY' ? subData?.yearlyPrice || 501 : subData?.monthlyPrice || 51;
+    const upiId = subData?.configuredUpiId || 'queueless@upi';
+    const payeeName = subData?.configuredUpiName || 'QueueLess Token System';
+    const upiDeepLink = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(
+      payeeName
+    )}&am=${currentPrice}&cu=INR&tn=QueueLess+Subscription`;
+
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col">
+        <Navbar />
+        <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6">
+          {/* Expiry Warning Card */}
+          <div className="p-6 rounded-3xl bg-rose-50 border border-rose-200 shadow-sm flex items-start gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900">
+                {t('trialExpiredBarrierTitle')}
+              </h1>
+              <p className="text-sm text-slate-600 font-medium mt-1">
+                {t('trialExpiredBarrierMsg')}
+              </p>
+              {subData?.endDate && (
+                <p className="text-xs text-rose-600 font-bold mt-2">
+                  Trial Expiration Date: {subData.endDate}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Pricing Options */}
+          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm space-y-6">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 mb-3">Choose Subscription Plan</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div
+                  onClick={() => setSelectedPlan('MONTHLY')}
+                  className={`p-5 rounded-2xl border-2 cursor-pointer transition-all ${
+                    selectedPlan === 'MONTHLY'
+                      ? 'bg-brand-50/30 border-brand-600 ring-4 ring-brand-500/10'
+                      : 'bg-white border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-600">Monthly Plan</span>
+                    <span className="w-4 h-4 rounded-full border-2 border-brand-600 flex items-center justify-center">
+                      {selectedPlan === 'MONTHLY' && <span className="w-2 h-2 rounded-full bg-brand-600" />}
+                    </span>
+                  </div>
+                  <div className="text-3xl font-extrabold text-slate-900">
+                    ₹{subData?.monthlyPrice || 51}
+                    <span className="text-sm font-medium text-slate-500"> / 30 days</span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1 font-medium">Ideal for small local shops</p>
+                </div>
+
+                <div
+                  onClick={() => setSelectedPlan('YEARLY')}
+                  className={`p-5 rounded-2xl border-2 cursor-pointer transition-all ${
+                    selectedPlan === 'YEARLY'
+                      ? 'bg-brand-50/30 border-brand-600 ring-4 ring-brand-500/10'
+                      : 'bg-white border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-600">Yearly Plan</span>
+                    <span className="w-4 h-4 rounded-full border-2 border-brand-600 flex items-center justify-center">
+                      {selectedPlan === 'YEARLY' && <span className="w-2 h-2 rounded-full bg-brand-600" />}
+                    </span>
+                  </div>
+                  <div className="text-3xl font-extrabold text-slate-900">
+                    ₹{subData?.yearlyPrice || 501}
+                    <span className="text-sm font-medium text-slate-500"> / 365 days</span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1 font-medium">Best value for active businesses</p>
+                </div>
+              </div>
+            </div>
+
+            {/* UPI QR & Payment */}
+            <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-col sm:flex-row items-center gap-6">
+              <div className="p-3 bg-white rounded-2xl border border-slate-200 shadow-sm shrink-0">
+                <QRCodeSVG value={upiDeepLink} size={150} level="M" />
+              </div>
+              <div className="flex-1 space-y-3 text-center sm:text-left">
+                <div>
+                  <span className="text-xs font-bold uppercase text-slate-500">Direct Payee UPI ID</span>
+                  <div className="flex items-center justify-center sm:justify-start gap-2 mt-0.5">
+                    <code className="text-base font-bold text-slate-900 bg-white px-2.5 py-1 rounded-xl border border-slate-200">
+                      {upiId}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={handleCopyUpi}
+                      className="p-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 transition-colors"
+                      title="Copy UPI ID"
+                    >
+                      {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1 font-medium">{payeeName}</p>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Scan QR code with Google Pay, PhonePe, Paytm, or BHIM. After paying ₹{currentPrice}, enter the 12-digit UPI Reference Number (UTR) below.
+                </p>
+              </div>
+            </div>
+
+            {/* UTR Form */}
+            <form onSubmit={handleSubmitPayment} className="space-y-4">
+              {paymentError && (
+                <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm font-medium">
+                  {paymentError}
+                </div>
+              )}
+              {paymentSuccessMsg && (
+                <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-medium flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <span>{paymentSuccessMsg}</span>
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
+                  12-Digit UPI Reference Number (UTR) <span className="text-rose-500">*</span>
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    required
+                    value={utrNumber}
+                    onChange={(e) => setUtrNumber(e.target.value)}
+                    placeholder="e.g. 432109876543"
+                    className="flex-1 px-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-mono font-bold tracking-wider transition-all"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSubmittingPayment}
+                    className="px-6 py-3 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm shadow-md shadow-brand-500/20 flex items-center gap-2 transition-all disabled:opacity-50 shrink-0"
+                  >
+                    <Send className="w-4 h-4" />
+                    <span>{isSubmittingPayment ? 'Submitting...' : 'Submit Payment'}</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </main>
       </div>
     );
   }

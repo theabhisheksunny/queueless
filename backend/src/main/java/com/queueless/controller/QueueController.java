@@ -8,12 +8,12 @@ import com.queueless.entity.Shop;
 import com.queueless.entity.User;
 import com.queueless.repository.ShopRepository;
 import com.queueless.repository.UserRepository;
+import com.queueless.service.EntitlementService;
 import com.queueless.service.QueueService;
 import com.queueless.service.SseEmitterService;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -27,15 +27,18 @@ public class QueueController {
     private final SseEmitterService sseEmitterService;
     private final UserRepository userRepository;
     private final ShopRepository shopRepository;
+    private final EntitlementService entitlementService;
 
     public QueueController(QueueService queueService,
                            SseEmitterService sseEmitterService,
                            UserRepository userRepository,
-                           ShopRepository shopRepository) {
+                           ShopRepository shopRepository,
+                           EntitlementService entitlementService) {
         this.queueService = queueService;
         this.sseEmitterService = sseEmitterService;
         this.userRepository = userRepository;
         this.shopRepository = shopRepository;
+        this.entitlementService = entitlementService;
     }
 
     private Shop getShopFromPrincipal(Principal principal) {
@@ -51,18 +54,21 @@ public class QueueController {
     @GetMapping("/dashboard")
     public ResponseEntity<QueueDashboardResponse> getDashboard(Principal principal) {
         Shop shop = getShopFromPrincipal(principal);
+        entitlementService.requireActiveEntitlement(shop.getId());
         return ResponseEntity.ok(queueService.getDashboard(shop.getId()));
     }
 
     @PostMapping("/start")
     public ResponseEntity<QueueDashboardResponse> startQueue(Principal principal) {
         Shop shop = getShopFromPrincipal(principal);
+        entitlementService.requireActiveEntitlement(shop.getId());
         return ResponseEntity.ok(queueService.startQueue(shop.getId()));
     }
 
     @PostMapping("/close")
     public ResponseEntity<QueueDashboardResponse> closeQueue(Principal principal) {
         Shop shop = getShopFromPrincipal(principal);
+        entitlementService.requireActiveEntitlement(shop.getId());
         return ResponseEntity.ok(queueService.closeQueue(shop.getId()));
     }
 
@@ -71,12 +77,14 @@ public class QueueController {
             Principal principal,
             @Valid @RequestBody CustomerManualAddRequest request) {
         Shop shop = getShopFromPrincipal(principal);
+        entitlementService.requireActiveEntitlement(shop.getId());
         return ResponseEntity.ok(queueService.manualAddCustomer(shop.getId(), request));
     }
 
     @PostMapping("/customers/next")
     public ResponseEntity<QueueDashboardResponse> callNextCustomer(Principal principal) {
         Shop shop = getShopFromPrincipal(principal);
+        entitlementService.requireActiveEntitlement(shop.getId());
         return ResponseEntity.ok(queueService.callNextCustomer(shop.getId()));
     }
 
@@ -86,6 +94,7 @@ public class QueueController {
             @PathVariable Long customerId,
             @RequestParam CustomerQueueStatus status) {
         Shop shop = getShopFromPrincipal(principal);
+        entitlementService.requireActiveEntitlement(shop.getId());
         return ResponseEntity.ok(queueService.updateCustomerStatus(shop.getId(), customerId, status));
     }
 
@@ -95,6 +104,7 @@ public class QueueController {
             @PathVariable Long customerId,
             @Valid @RequestBody CustomerEditRequest request) {
         Shop shop = getShopFromPrincipal(principal);
+        entitlementService.requireActiveEntitlement(shop.getId());
         return ResponseEntity.ok(queueService.editCustomer(shop.getId(), customerId, request));
     }
 
@@ -103,6 +113,7 @@ public class QueueController {
             Principal principal,
             @PathVariable Long customerId) {
         Shop shop = getShopFromPrincipal(principal);
+        entitlementService.requireActiveEntitlement(shop.getId());
         return ResponseEntity.ok(queueService.removeCustomer(shop.getId(), customerId));
     }
 
@@ -112,6 +123,7 @@ public class QueueController {
     @GetMapping(value = "/stream/owner", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamOwnerUpdates(Principal principal) {
         Shop shop = getShopFromPrincipal(principal);
+        entitlementService.requireActiveEntitlement(shop.getId());
         return sseEmitterService.createOwnerEmitter(shop.getId());
     }
 }

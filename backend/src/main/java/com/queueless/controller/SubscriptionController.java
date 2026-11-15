@@ -36,7 +36,7 @@ public class SubscriptionController {
                 .orElseThrow(() -> new IllegalArgumentException("No shop found for user: " + principal.getName()));
     }
 
-    @GetMapping
+    @GetMapping({"", "/status"})
     public ResponseEntity<SubscriptionStatusResponse> getStatus(Principal principal) {
         Shop shop = getShopFromPrincipal(principal);
         return ResponseEntity.ok(subscriptionService.getShopSubscriptionStatus(shop.getId()));

@@ -12,4 +12,5 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
     Optional<Subscription> findTopByShopIdOrderByEndDateDesc(Long shopId);
     List<Subscription> findByShopIdOrderByCreatedAtDesc(Long shopId);
     List<Subscription> findAllByOrderByCreatedAtDesc();
+    boolean existsByPaymentReference(String paymentReference);
 }

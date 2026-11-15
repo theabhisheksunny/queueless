@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { api, type AdminShopItemData } from '../api/client';
+import { api, type AdminShopItemData, type AdminCategoryChangeItemData } from '../api/client';
 import { useLanguage } from '../context/LanguageContext';
-import { ShieldCheck, Key, CheckCircle2, QrCode } from 'lucide-react';
+import { ShieldCheck, Key, CheckCircle2, Check, X, Tag } from 'lucide-react';
 
 export const AdminPage: React.FC = () => {
   const { t } = useLanguage();
@@ -15,6 +15,7 @@ export const AdminPage: React.FC = () => {
   const [monthlyPrice, setMonthlyPrice] = useState(51);
   const [yearlyPrice, setYearlyPrice] = useState(501);
   const [shops, setShops] = useState<AdminShopItemData[]>([]);
+  const [catRequests, setCatRequests] = useState<AdminCategoryChangeItemData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,8 +33,12 @@ export const AdminPage: React.FC = () => {
       setMonthlyPrice(config.monthlyPrice || 51);
       setYearlyPrice(config.yearlyPrice || 501);
 
-      const shopsList = await api.getAdminShops(adminKey.trim());
+      const [shopsList, catReqs] = await Promise.all([
+        api.getAdminShops(adminKey.trim()),
+        api.getAdminCategoryChangeRequests(adminKey.trim()).catch(() => []),
+      ]);
       setShops(shopsList);
+      setCatRequests(catReqs);
 
       setIsAuthenticated(true);
       localStorage.setItem('queueless_admin_key', adminKey.trim());
@@ -69,12 +74,43 @@ export const AdminPage: React.FC = () => {
         planType,
         customDays,
       });
-      // Refresh shops list
       const updated = await api.getAdminShops(adminKey);
       setShops(updated);
       setMessage(`Shop subscription extended by ${customDays} days!`);
     } catch (err: any) {
       alert(err.message || 'Failed to activate shop');
+    }
+  };
+
+  const handleApproveCatRequest = async (id: number) => {
+    try {
+      await api.approveAdminCategoryChange(adminKey, id);
+      const [updatedReqs, updatedShops] = await Promise.all([
+        api.getAdminCategoryChangeRequests(adminKey),
+        api.getAdminShops(adminKey),
+      ]);
+      setCatRequests(updatedReqs);
+      setShops(updatedShops);
+      setMessage('Category change request approved successfully! Shop category updated.');
+    } catch (err: any) {
+      alert(err.message || 'Failed to approve category change request');
+    }
+  };
+
+  const handleRejectCatRequest = async (id: number) => {
+    const reason = window.prompt(
+      t('rejectionReasonPrompt'),
+      'Payment verification failed or invalid UTR reference.'
+    );
+    if (reason === null) return;
+
+    try {
+      await api.rejectAdminCategoryChange(adminKey, id, reason.trim() || 'Payment verification failed');
+      const updatedReqs = await api.getAdminCategoryChangeRequests(adminKey);
+      setCatRequests(updatedReqs);
+      setMessage('Category change request rejected.');
+    } catch (err: any) {
+      alert(err.message || 'Failed to reject category change request');
     }
   };
 
@@ -89,7 +125,7 @@ export const AdminPage: React.FC = () => {
           <div>
             <h1 className="text-2xl font-black text-slate-900">{t('adminTitle')}</h1>
             <p className="text-xs text-slate-500 font-medium">
-              Minimal facility to configure subscription UPI ID and manage shop access
+              Minimal facility to configure subscription UPI ID, manage shop access & verify category changes
             </p>
           </div>
         </div>
@@ -98,19 +134,19 @@ export const AdminPage: React.FC = () => {
         {!isAuthenticated ? (
           <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm max-w-md mx-auto">
             <h2 className="text-lg font-bold text-slate-900 mb-2">Admin Authentication</h2>
-            <p className="text-xs text-slate-500 mb-4">
-              Enter the administrator secret key to manage subscription settings.
+            <p className="text-xs text-slate-500 mb-6">
+              Enter your backend administration key to access controls.
             </p>
 
             {error && (
-              <div className="p-3 mb-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+              <div className="mb-4 p-3 rounded-2xl bg-rose-50 text-rose-700 text-xs font-semibold border border-rose-200">
                 {error}
               </div>
             )}
 
             <form onSubmit={handleVerifyKey} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                   {t('adminKeyLabel')}
                 </label>
                 <div className="relative">
@@ -121,7 +157,7 @@ export const AdminPage: React.FC = () => {
                     value={adminKey}
                     onChange={(e) => setAdminKey(e.target.value)}
                     placeholder={t('adminKeyPlaceholder')}
-                    className="w-full pl-10 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 text-sm font-mono"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-2xl border border-slate-200 focus:border-brand-500 outline-none text-slate-900 font-mono text-sm"
                   />
                 </div>
               </div>
@@ -129,28 +165,29 @@ export const AdminPage: React.FC = () => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3.5 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm shadow-md transition-colors"
+                className="w-full py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm transition-colors shadow-md disabled:opacity-50"
               >
                 {isLoading ? 'Verifying...' : t('adminVerifyBtn')}
               </button>
             </form>
           </div>
         ) : (
-          /* Step 2: Admin Control Panel */
           <div className="space-y-6">
             {message && (
               <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-semibold flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                 <span>{message}</span>
               </div>
             )}
 
-            {/* UPI Settings Card */}
+            {/* UPI Settings Configuration */}
             <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm">
-              <h2 className="text-lg font-extrabold text-slate-900 mb-4 flex items-center gap-2">
-                <QrCode className="w-5 h-5 text-brand-600" />
-                <span>{t('configUpiHeading')}</span>
+              <h2 className="text-lg font-extrabold text-slate-900 mb-1">
+                {t('configUpiHeading')}
               </h2>
+              <p className="text-xs text-slate-500 mb-6">
+                Owners will see this UPI ID and merchant name for direct payments and QR codes.
+              </p>
 
               <form onSubmit={handleSaveConfig} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -163,7 +200,7 @@ export const AdminPage: React.FC = () => {
                     value={upiId}
                     onChange={(e) => setUpiId(e.target.value)}
                     placeholder="e.g. queueless@upi"
-                    className="w-full px-4 py-2.5 rounded-2xl border border-slate-200 focus:border-brand-500 outline-none text-slate-900 font-mono text-sm font-semibold"
+                    className="w-full px-4 py-2.5 rounded-2xl border border-slate-200 focus:border-brand-500 outline-none text-slate-900 text-sm font-semibold font-mono"
                   />
                 </div>
 
@@ -176,14 +213,14 @@ export const AdminPage: React.FC = () => {
                     required
                     value={upiName}
                     onChange={(e) => setUpiName(e.target.value)}
-                    placeholder="QueueLess Payments"
+                    placeholder="e.g. QueueLess Platform"
                     className="w-full px-4 py-2.5 rounded-2xl border border-slate-200 focus:border-brand-500 outline-none text-slate-900 text-sm font-semibold"
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                    Monthly Plan Price (₹)
+                    Monthly Plan Fee (₹)
                   </label>
                   <input
                     type="number"
@@ -195,7 +232,7 @@ export const AdminPage: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                    Yearly Plan Price (₹)
+                    Yearly Plan Fee (₹)
                   </label>
                   <input
                     type="number"
@@ -214,6 +251,100 @@ export const AdminPage: React.FC = () => {
                   </button>
                 </div>
               </form>
+            </div>
+
+            {/* Category Change Requests Section (₹101) */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-extrabold text-slate-900 flex items-center gap-2">
+                    <Tag className="w-5 h-5 text-brand-600" />
+                    <span>{t('categoryRequestsAdminHeading')}</span>
+                  </h2>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Verify ₹101 UPI payment references and approve permanent category updates
+                  </p>
+                </div>
+                <span className="text-xs font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-700">
+                  {catRequests.length} Requests
+                </span>
+              </div>
+
+              {catRequests.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-xs font-medium">
+                  No category change requests submitted yet.
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {catRequests.map((req) => (
+                    <div
+                      key={req.id}
+                      className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/60 transition-colors"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-base font-bold text-slate-900">
+                            {req.shopName} <span className="text-slate-400 font-mono text-xs">(#{req.shopId})</span>
+                          </h3>
+                          <span
+                            className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
+                              req.status === 'APPROVED'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : req.status === 'REJECTED'
+                                ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                : 'bg-amber-50 text-amber-800 border border-amber-200'
+                            }`}
+                          >
+                            {req.status}
+                          </span>
+                        </div>
+
+                        <div className="text-xs text-slate-600 font-medium flex items-center gap-2">
+                          <span className="line-through text-slate-400">{req.oldCategory}</span>
+                          <span>➔</span>
+                          <span className="font-bold text-brand-700">{req.requestedCategory}</span>
+                          <span className="text-slate-400">• Fee: ₹{req.amount}</span>
+                        </div>
+
+                        <div className="text-xs text-slate-500 font-medium space-x-3">
+                          <span>Owner: {req.ownerName} ({req.ownerEmail})</span>
+                          {req.paymentReference && (
+                            <span className="font-mono text-slate-700 font-bold">
+                              • UTR: {req.paymentReference}
+                            </span>
+                          )}
+                        </div>
+
+                        {req.rejectionReason && (
+                          <div className="text-xs text-rose-600 font-medium">
+                            Reason: {req.rejectionReason}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action buttons if not already approved or rejected */}
+                      {req.status !== 'APPROVED' && req.status !== 'REJECTED' && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleApproveCatRequest(req.id)}
+                            className="py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm flex items-center gap-1 transition-colors"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>{t('approveBtn')}</span>
+                          </button>
+                          <button
+                            onClick={() => handleRejectCatRequest(req.id)}
+                            className="py-2 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs flex items-center gap-1 transition-colors"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>{t('rejectBtn')}</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Shop Subscriptions Table */}

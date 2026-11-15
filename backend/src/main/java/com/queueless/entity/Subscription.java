@@ -46,6 +46,15 @@ public class Subscription {
     @Column(length = 255)
     private String notes;
 
+    @Column(name = "trial_started_at")
+    private LocalDateTime trialStartedAt;
+
+    @Column(name = "trial_ends_at")
+    private LocalDateTime trialEndsAt;
+
+    @Column(name = "trial_consumed_at")
+    private LocalDateTime trialConsumedAt;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -161,6 +170,30 @@ public class Subscription {
 
     public LocalDateTime getUpdatedAt() {
         return updatedAt;
+    }
+
+    public LocalDateTime getTrialStartedAt() {
+        return trialStartedAt;
+    }
+
+    public void setTrialStartedAt(LocalDateTime trialStartedAt) {
+        this.trialStartedAt = trialStartedAt;
+    }
+
+    public LocalDateTime getTrialEndsAt() {
+        return trialEndsAt;
+    }
+
+    public void setTrialEndsAt(LocalDateTime trialEndsAt) {
+        this.trialEndsAt = trialEndsAt;
+    }
+
+    public LocalDateTime getTrialConsumedAt() {
+        return trialConsumedAt;
+    }
+
+    public void setTrialConsumedAt(LocalDateTime trialConsumedAt) {
+        this.trialConsumedAt = trialConsumedAt;
     }
 
     public boolean isCurrentlyActive() {

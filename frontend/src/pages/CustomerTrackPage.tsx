@@ -14,6 +14,7 @@ import {
   Check,
   Globe,
   CheckCircle2,
+  Clock,
 } from 'lucide-react';
 
 // Web Audio API chime synthesizer for when token is CALLED
@@ -48,6 +49,7 @@ export const CustomerTrackPage: React.FC = () => {
   const [positionInfo, setPositionInfo] = useState<CustomerPositionData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isExpired, setIsExpired] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
   const [sseConnected, setSseConnected] = useState(false);
@@ -74,7 +76,12 @@ export const CustomerTrackPage: React.FC = () => {
       }
       prevStatusRef.current = data.status;
     } catch (err: any) {
-      setError(err.message || 'Token not found or expired');
+      if (err.status === 410 || (err.message && err.message.toLowerCase().includes('expired'))) {
+        setIsExpired(true);
+        setError(null);
+      } else {
+        setError(err.message || 'Token not found');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -116,12 +123,37 @@ export const CustomerTrackPage: React.FC = () => {
 
     eventSource.onerror = () => {
       setSseConnected(false);
+      // Re-verify position with backend in case stream ended due to token expiration
+      fetchPosition();
     };
 
     return () => {
       eventSource.close();
     };
   }, [trackingToken, fetchPosition]);
+
+  // Automatic timer for completed token expiration
+  useEffect(() => {
+    if (!positionInfo || positionInfo.status !== 'COMPLETED') return;
+
+    let expiryMs: number | null = null;
+    if (positionInfo.expiresAt) {
+      expiryMs = new Date(positionInfo.expiresAt).getTime() - Date.now();
+    } else if (positionInfo.completedAt) {
+      expiryMs = new Date(positionInfo.completedAt).getTime() + 15 * 60 * 1000 - Date.now();
+    }
+
+    if (expiryMs !== null) {
+      if (expiryMs <= 0) {
+        setIsExpired(true);
+      } else {
+        const timer = setTimeout(() => {
+          fetchPosition();
+        }, expiryMs);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [positionInfo, fetchPosition]);
 
   const handleLeaveQueue = async () => {
     if (!trackingToken) return;
@@ -156,6 +188,49 @@ export const CustomerTrackPage: React.FC = () => {
           <QrCode className="w-6 h-6 animate-pulse" />
         </div>
         <p className="text-slate-600 font-semibold text-base">Loading Your Token...</p>
+      </div>
+    );
+  }
+
+  if (isExpired) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-100 flex flex-col justify-between p-4 sm:p-6 selection:bg-brand-500 selection:text-white">
+        {/* Top Header */}
+        <div className="max-w-md w-full mx-auto flex items-center justify-between py-2">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-brand-600 text-white flex items-center justify-center shadow-md shadow-brand-500/20">
+              <QrCode className="w-4 h-4" />
+            </div>
+            <span className="font-extrabold text-slate-900 tracking-tight text-lg">QueueLess</span>
+          </div>
+
+          <button
+            onClick={toggleLanguage}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white border border-slate-200 text-slate-700 text-xs font-semibold shadow-sm hover:bg-slate-50 transition-colors"
+          >
+            <Globe className="w-3.5 h-3.5 text-brand-600" />
+            <span>{language === 'en' ? 'हिंदी' : 'EN'}</span>
+          </button>
+        </div>
+
+        {/* Expired Token Card */}
+        <div className="max-w-md w-full mx-auto my-auto py-8">
+          <div className="bg-white rounded-3xl shadow-xl shadow-brand-950/5 border border-slate-200/80 p-8 text-center space-y-4">
+            <div className="w-16 h-16 rounded-3xl bg-amber-50 border border-amber-200 text-amber-600 mx-auto flex items-center justify-center shadow-sm">
+              <Clock className="w-8 h-8" />
+            </div>
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+              {t('tokenExpiredTitle')}
+            </h1>
+            <p className="text-sm font-medium text-slate-600 leading-relaxed max-w-sm mx-auto">
+              {t('tokenExpiredMsg')}
+            </p>
+          </div>
+        </div>
+
+        <footer className="text-center py-4 text-xs font-semibold text-slate-400">
+          QueueLess — Digital Token System
+        </footer>
       </div>
     );
   }
@@ -361,9 +436,14 @@ export const CustomerTrackPage: React.FC = () => {
                 <span>{t('leaveQueueBtn')}</span>
               </button>
             ) : (
-              <p className="text-sm font-bold text-emerald-600">
-                Thank you! We look forward to serving you again.
-              </p>
+              <div className="space-y-2">
+                <p className="text-base font-bold text-emerald-700">
+                  {t('serviceCompletedMsg')}
+                </p>
+                <p className="text-xs text-slate-400 font-medium">
+                  {t('completedGraceNotice')}
+                </p>
+              </div>
             )}
           </div>
         </div>

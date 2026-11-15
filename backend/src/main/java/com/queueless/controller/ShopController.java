@@ -5,6 +5,7 @@ import com.queueless.entity.Shop;
 import com.queueless.entity.User;
 import com.queueless.repository.ShopRepository;
 import com.queueless.repository.UserRepository;
+import com.queueless.service.EntitlementService;
 import com.queueless.service.ShopService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -19,13 +20,16 @@ public class ShopController {
     private final ShopService shopService;
     private final UserRepository userRepository;
     private final ShopRepository shopRepository;
+    private final EntitlementService entitlementService;
 
     public ShopController(ShopService shopService,
                           UserRepository userRepository,
-                          ShopRepository shopRepository) {
+                          ShopRepository shopRepository,
+                          EntitlementService entitlementService) {
         this.shopService = shopService;
         this.userRepository = userRepository;
         this.shopRepository = shopRepository;
+        this.entitlementService = entitlementService;
     }
 
     private Shop getShopFromPrincipal(Principal principal) {
@@ -38,6 +42,7 @@ public class ShopController {
     @GetMapping
     public ResponseEntity<Shop> getSettings(Principal principal) {
         Shop shop = getShopFromPrincipal(principal);
+        entitlementService.requireActiveEntitlement(shop.getId());
         return ResponseEntity.ok(shopService.getShop(shop.getId()));
     }
 
@@ -46,6 +51,7 @@ public class ShopController {
             Principal principal,
             @Valid @RequestBody ShopSettingsRequest request) {
         Shop shop = getShopFromPrincipal(principal);
+        entitlementService.requireActiveEntitlement(shop.getId());
         Shop updated = shopService.updateShopSettings(shop.getId(), request);
         return ResponseEntity.ok(updated);
     }

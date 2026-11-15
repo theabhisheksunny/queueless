@@ -29,8 +29,12 @@ public class ShopService {
         if (request.getName() != null && !request.getName().isBlank()) {
             shop.setName(request.getName().trim());
         }
+        // Business category is permanent and locked after registration
         if (request.getCategory() != null && !request.getCategory().isBlank()) {
-            shop.setCategory(request.getCategory().trim());
+            String trimmedCategory = request.getCategory().trim();
+            if (!trimmedCategory.equalsIgnoreCase(shop.getCategory())) {
+                throw new IllegalArgumentException("Business category is locked after registration. To change it, submit a category change request with the ₹101 modification fee.");
+            }
         }
         if (request.getAvgServiceDurationMinutes() != null && request.getAvgServiceDurationMinutes() > 0) {
             shop.setAvgServiceDurationMinutes(request.getAvgServiceDurationMinutes());

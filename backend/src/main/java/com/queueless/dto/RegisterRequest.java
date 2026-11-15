@@ -19,6 +19,10 @@ public class RegisterRequest {
 
     private String phone;
 
+    private String otp;
+
+    private String deviceFingerprint;
+
     @NotBlank(message = "Shop name is required")
     private String shopName;
 
@@ -58,6 +62,22 @@ public class RegisterRequest {
 
     public void setPhone(String phone) {
         this.phone = phone;
+    }
+
+    public String getOtp() {
+        return otp;
+    }
+
+    public void setOtp(String otp) {
+        this.otp = otp;
+    }
+
+    public String getDeviceFingerprint() {
+        return deviceFingerprint;
+    }
+
+    public void setDeviceFingerprint(String deviceFingerprint) {
+        this.deviceFingerprint = deviceFingerprint;
     }
 
     public String getShopName() {

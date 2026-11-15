@@ -63,9 +63,11 @@ public class PublicQueueController {
 
     /**
      * Real-time Server-Sent Events stream for customer tracking page.
+     * Enforces the 15-minute completed token expiration policy.
      */
     @GetMapping(value = "/stream/customer/{trackingToken}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamCustomerUpdates(@PathVariable String trackingToken) {
+        queueService.validateTrackingTokenNotExpired(trackingToken);
         return sseEmitterService.createCustomerEmitter(trackingToken);
     }
 }

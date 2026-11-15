@@ -109,6 +109,10 @@ public class ShopActiveQueue {
      * Updates an existing customer's status in memory.
      */
     public synchronized QueueCustomerSummary updateCustomerStatus(Long customerId, CustomerQueueStatus newStatus) {
+        return updateCustomerStatus(customerId, newStatus, null);
+    }
+
+    public synchronized QueueCustomerSummary updateCustomerStatus(Long customerId, CustomerQueueStatus newStatus, LocalDateTime completedAtTimestamp) {
         QueueCustomerSummary customer = idLookup.get(customerId);
         if (customer == null) {
             // Fallback scan
@@ -128,7 +132,10 @@ public class ShopActiveQueue {
             } else if (newStatus == CustomerQueueStatus.SERVING) {
                 customer.setServedAt(now);
             } else if (newStatus == CustomerQueueStatus.COMPLETED) {
-                customer.setCompletedAt(now);
+                // Ensure repeated completion requests do not reset expiration timestamp
+                if (customer.getCompletedAt() == null) {
+                    customer.setCompletedAt(completedAtTimestamp != null ? completedAtTimestamp : now);
+                }
             }
         }
         return customer;
@@ -253,7 +260,7 @@ public class ShopActiveQueue {
 
         int estimatedWaitMinutes = peopleAhead * this.avgServiceDurationMinutes;
 
-        return new CustomerPositionInfo(
+        CustomerPositionInfo positionInfo = new CustomerPositionInfo(
                 this.shopName,
                 target.getTokenNumber(),
                 servingToken,
@@ -264,6 +271,11 @@ public class ShopActiveQueue {
                 target.getTrackingToken(),
                 target.getJoinedAt()
         );
+        positionInfo.setCompletedAt(target.getCompletedAt());
+        if (target.getCompletedAt() != null) {
+            positionInfo.setExpiresAt(target.getCompletedAt().plusMinutes(15));
+        }
+        return positionInfo;
     }
 
     /**

@@ -2,6 +2,7 @@ package com.queueless.service;
 
 import com.queueless.dto.*;
 import com.queueless.entity.*;
+import com.queueless.exception.TokenExpiredException;
 import com.queueless.model.CustomerPositionInfo;
 import com.queueless.model.QueueCustomerSummary;
 import com.queueless.model.ShopActiveQueue;
@@ -11,10 +12,13 @@ import com.queueless.repository.ShopRepository;
 import com.queueless.repository.SubscriptionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -35,19 +39,46 @@ public class QueueService {
     private final SubscriptionRepository subscriptionRepository;
     private final ActiveQueueManager activeQueueManager;
     private final SseEmitterService sseEmitterService;
+    private final EntitlementService entitlementService;
+
+    @Value("${queueless.token.completed-expiration-minutes:15}")
+    private long completedExpirationMinutes = 15;
+
+    private Clock clock = Clock.systemDefaultZone();
 
     public QueueService(ShopRepository shopRepository,
                         QueueSessionRepository sessionRepository,
                         QueueCustomerRepository customerRepository,
                         SubscriptionRepository subscriptionRepository,
                         ActiveQueueManager activeQueueManager,
-                        SseEmitterService sseEmitterService) {
+                        SseEmitterService sseEmitterService,
+                        EntitlementService entitlementService) {
         this.shopRepository = shopRepository;
         this.sessionRepository = sessionRepository;
         this.customerRepository = customerRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.activeQueueManager = activeQueueManager;
         this.sseEmitterService = sseEmitterService;
+        this.entitlementService = entitlementService;
+    }
+
+    @Autowired(required = false)
+    public void setClock(Clock clock) {
+        if (clock != null) {
+            this.clock = clock;
+        }
+    }
+
+    public Clock getClock() {
+        return this.clock;
+    }
+
+    public void setCompletedExpirationMinutes(long completedExpirationMinutes) {
+        this.completedExpirationMinutes = completedExpirationMinutes;
+    }
+
+    public long getCompletedExpirationMinutes() {
+        return this.completedExpirationMinutes;
     }
 
     /**
@@ -146,6 +177,11 @@ public class QueueService {
 
         Shop shop = session.getShop();
         Long shopId = shop.getId();
+
+        if (!entitlementService.hasActiveEntitlement(shopId)) {
+            throw new IllegalStateException("Shop queue is temporarily unavailable due to subscription status.");
+        }
+
         ShopActiveQueue activeQueue = getOrInitializeQueue(shopId);
 
         if (!activeQueue.isOpen()) {
@@ -264,6 +300,49 @@ public class QueueService {
     }
 
     /**
+     * Checks if a completed token has exceeded the 15-minute expiration period.
+     */
+    public boolean isTokenExpired(LocalDateTime completedAt, CustomerQueueStatus status) {
+        if (status != CustomerQueueStatus.COMPLETED || completedAt == null) {
+            return false;
+        }
+        LocalDateTime expiresAt = completedAt.plusMinutes(this.completedExpirationMinutes);
+        LocalDateTime now = LocalDateTime.now(this.clock);
+        return !now.isBefore(expiresAt);
+    }
+
+    /**
+     * Validates that a public tracking token exists and has not expired.
+     */
+    public void validateTrackingTokenNotExpired(String trackingToken) {
+        if (trackingToken == null || trackingToken.isBlank()) {
+            throw new IllegalArgumentException("Tracking token is required");
+        }
+
+        // 1. Check in-memory active queue
+        ShopActiveQueue queue = activeQueueManager.getShopQueueByTrackingToken(trackingToken);
+        if (queue != null) {
+            QueueCustomerSummary summary = queue.findByTrackingToken(trackingToken);
+            if (summary != null) {
+                if (summary.getStatus() == CustomerQueueStatus.COMPLETED && isTokenExpired(summary.getCompletedAt(), summary.getStatus())) {
+                    sseEmitterService.closeCustomerEmitters(trackingToken);
+                    throw new TokenExpiredException("Your token has expired. Your service was already completed.");
+                }
+                return;
+            }
+        }
+
+        // 2. Check DB fallback
+        QueueCustomer customer = customerRepository.findByTrackingToken(trackingToken)
+                .orElseThrow(() -> new IllegalArgumentException("Tracking token not found"));
+
+        if (customer.getStatus() == CustomerQueueStatus.COMPLETED && isTokenExpired(customer.getCompletedAt(), customer.getStatus())) {
+            sseEmitterService.closeCustomerEmitters(trackingToken);
+            throw new TokenExpiredException("Your token has expired. Your service was already completed.");
+        }
+    }
+
+    /**
      * Updates an existing customer's status (CALLED, SERVING, COMPLETED, SKIPPED, NO_SHOW, CANCELLED).
      */
     @Transactional
@@ -272,17 +351,25 @@ public class QueueService {
                 .orElseThrow(() -> new IllegalArgumentException("Customer not found with ID: " + customerId));
 
         customer.setStatus(newStatus);
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(this.clock);
         if (newStatus == CustomerQueueStatus.CALLED) {
             customer.setCalledAt(now);
         } else if (newStatus == CustomerQueueStatus.SERVING) {
             customer.setServedAt(now);
         } else if (newStatus == CustomerQueueStatus.COMPLETED) {
-            customer.setCompletedAt(now);
+            // Ensure repeated completion requests do not unexpectedly reset the expiration timestamp
+            if (customer.getCompletedAt() == null) {
+                customer.setCompletedAt(now);
+            }
         }
         customerRepository.save(customer);
 
-        activeQueueManager.updateCustomerStatus(shopId, customerId, newStatus);
+        activeQueueManager.updateCustomerStatus(shopId, customerId, newStatus, customer.getCompletedAt());
+
+        // If completed, schedule customer SSE emitter closure after expiration duration
+        if (newStatus == CustomerQueueStatus.COMPLETED && customer.getTrackingToken() != null) {
+            sseEmitterService.scheduleEmitterExpiration(customer.getTrackingToken(), this.completedExpirationMinutes * 60 * 1000L);
+        }
 
         notifyQueueUpdated(shopId);
         return getDashboard(shopId);
@@ -319,6 +406,8 @@ public class QueueService {
      */
     @Transactional
     public CustomerPositionInfo customerLeaveQueue(String trackingToken) {
+        validateTrackingTokenNotExpired(trackingToken);
+
         QueueCustomer customer = customerRepository.findByTrackingToken(trackingToken)
                 .orElseThrow(() -> new IllegalArgumentException("Token not found"));
 
@@ -332,16 +421,23 @@ public class QueueService {
             notifyQueueUpdated(shopId);
         }
 
-        return activeQueueManager.getCustomerPosition(trackingToken);
+        return getCustomerTrackingInfo(trackingToken);
     }
 
     /**
      * Rejoining once if left/cancelled (optional feature specified in section 10).
+     * Completed tokens must never be reactivated.
      */
     @Transactional
     public CustomerPositionInfo customerRejoinQueue(String trackingToken) {
+        validateTrackingTokenNotExpired(trackingToken);
+
         QueueCustomer customer = customerRepository.findByTrackingToken(trackingToken)
                 .orElseThrow(() -> new IllegalArgumentException("Token not found"));
+
+        if (customer.getStatus() == CustomerQueueStatus.COMPLETED) {
+            throw new IllegalStateException("Completed tokens cannot rejoin the queue. Please scan QR code or ask shop owner for a new token.");
+        }
 
         if (customer.getStatus() == CustomerQueueStatus.LEFT || customer.getStatus() == CustomerQueueStatus.SKIPPED) {
             customer.setStatus(CustomerQueueStatus.WAITING);
@@ -353,22 +449,33 @@ public class QueueService {
             notifyQueueUpdated(shopId);
         }
 
-        return activeQueueManager.getCustomerPosition(trackingToken);
+        return getCustomerTrackingInfo(trackingToken);
     }
 
     /**
      * Fetches public tracking information for customer tracking page.
+     * Enforces the 15-minute completed token expiration policy.
      */
     @Transactional(readOnly = true)
     public CustomerPositionInfo getCustomerTrackingInfo(String trackingToken) {
+        validateTrackingTokenNotExpired(trackingToken);
+
         CustomerPositionInfo info = activeQueueManager.getCustomerPosition(trackingToken);
         if (info != null) {
+            if (info.getCompletedAt() != null) {
+                info.setExpiresAt(info.getCompletedAt().plusMinutes(this.completedExpirationMinutes));
+            }
             return info;
         }
 
         // DB fallback
         QueueCustomer customer = customerRepository.findByTrackingToken(trackingToken)
                 .orElseThrow(() -> new IllegalArgumentException("Tracking token not found"));
+
+        if (customer.getStatus() == CustomerQueueStatus.COMPLETED && isTokenExpired(customer.getCompletedAt(), customer.getStatus())) {
+            sseEmitterService.closeCustomerEmitters(trackingToken);
+            throw new TokenExpiredException("Your token has expired. Your service was already completed.");
+        }
 
         QueueSession session = customer.getQueueSession();
         Shop shop = session.getShop();
@@ -395,7 +502,7 @@ public class QueueService {
         }
         int waitTime = (int) peopleAhead * shop.getAvgServiceDurationMinutes();
 
-        return new CustomerPositionInfo(
+        CustomerPositionInfo posInfo = new CustomerPositionInfo(
                 shop.getName(),
                 customer.getTokenNumber(),
                 servingToken,
@@ -406,6 +513,11 @@ public class QueueService {
                 customer.getTrackingToken(),
                 customer.getJoinedAt()
         );
+        posInfo.setCompletedAt(customer.getCompletedAt());
+        if (customer.getCompletedAt() != null) {
+            posInfo.setExpiresAt(customer.getCompletedAt().plusMinutes(this.completedExpirationMinutes));
+        }
+        return posInfo;
     }
 
     /**
@@ -482,10 +594,30 @@ public class QueueService {
         if (activeQueue != null) {
             for (QueueCustomerSummary customer : activeQueue.getCustomerSnapshot()) {
                 if (customer.getTrackingToken() != null && sseEmitterService.hasCustomerEmitters(customer.getTrackingToken())) {
+                    if (isTokenExpired(customer.getCompletedAt(), customer.getStatus())) {
+                        sseEmitterService.closeCustomerEmitters(customer.getTrackingToken());
+                        continue;
+                    }
                     CustomerPositionInfo posInfo = activeQueue.getCustomerPositionInfo(customer.getTrackingToken());
                     if (posInfo != null) {
+                        if (posInfo.getCompletedAt() != null) {
+                            posInfo.setExpiresAt(posInfo.getCompletedAt().plusMinutes(this.completedExpirationMinutes));
+                        }
                         sseEmitterService.notifyCustomer(customer.getTrackingToken(), "POSITION_UPDATED", posInfo);
                     }
+                }
+            }
+        }
+    }
+
+    /**
+     * Closes SSE emitters for any completed tokens that have passed the expiration threshold.
+     */
+    public void closeExpiredCustomerEmitters() {
+        for (ShopActiveQueue queue : activeQueueManager.getAllQueues()) {
+            for (QueueCustomerSummary c : queue.getCustomerSnapshot()) {
+                if (c.getTrackingToken() != null && isTokenExpired(c.getCompletedAt(), c.getStatus())) {
+                    sseEmitterService.closeCustomerEmitters(c.getTrackingToken());
                 }
             }
         }

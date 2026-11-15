@@ -45,6 +45,8 @@ export interface CustomerPositionData {
   queueOpen: boolean;
   trackingToken: string;
   joinedAt: string;
+  completedAt?: string;
+  expiresAt?: string;
 }
 
 export interface SubscriptionStatusData {
@@ -59,6 +61,10 @@ export interface SubscriptionStatusData {
   monthlyPrice: number;
   yearlyPrice: number;
   pendingPaymentReference?: string;
+  trialStartedAt?: string;
+  trialEndsAt?: string;
+  trialConsumedAt?: string;
+  trialExpired?: boolean;
 }
 
 export interface ShopSettingsData {
@@ -80,6 +86,43 @@ export interface AdminShopItemData {
   subscriptionEndDate?: string;
   active: boolean;
   pendingPaymentReference?: string;
+}
+
+export interface CategoryChangeStatusData {
+  currentCategory: string;
+  fee: number;
+  upiId: string;
+  upiName: string;
+  qrPayload: string;
+  hasPendingRequest: boolean;
+  allowedCategories: string[];
+  requestId?: number;
+  oldCategory?: string;
+  requestedCategory?: string;
+  amount?: number;
+  paymentReference?: string;
+  status?: 'PAYMENT_PENDING' | 'PENDING_VERIFICATION' | 'APPROVED' | 'REJECTED';
+  rejectionReason?: string;
+  createdAt?: string;
+  reviewedAt?: string;
+}
+
+export interface AdminCategoryChangeItemData {
+  id: number;
+  shopId: number;
+  shopName: string;
+  ownerName?: string;
+  ownerEmail?: string;
+  ownerPhone?: string;
+  oldCategory: string;
+  requestedCategory: string;
+  amount: number;
+  paymentReference?: string;
+  status: 'PAYMENT_PENDING' | 'PENDING_VERIFICATION' | 'APPROVED' | 'REJECTED';
+  rejectionReason?: string;
+  createdAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
 }
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -107,7 +150,9 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     } catch {
       errorMsg = await response.text() || response.statusText;
     }
-    throw new Error(errorMsg);
+    const err: any = new Error(errorMsg);
+    err.status = response.status;
+    throw err;
   }
 
   if (response.status === 204) {
@@ -121,6 +166,10 @@ export const api = {
   // Auth
   register: (data: any) => request<any>('/api/auth/register', { method: 'POST', body: JSON.stringify(data) }),
   login: (data: any) => request<any>('/api/auth/login', { method: 'POST', body: JSON.stringify(data) }),
+  sendOtp: (phone: string) => request<{ message: string; cooldownSeconds: number; testOtp?: string }>('/api/auth/otp/send', { method: 'POST', body: JSON.stringify({ phone }) }),
+  verifyOtp: (phone: string, otp: string) => request<{ verified: boolean; message: string }>('/api/auth/otp/verify', { method: 'POST', body: JSON.stringify({ phone, otp }) }),
+  resetPassword: (data: { phone: string; otp: string; newPassword: string }) => request<any>('/api/auth/reset-password', { method: 'POST', body: JSON.stringify(data) }),
+  deleteAccount: () => request<any>('/api/owner/account', { method: 'DELETE' }),
 
   // Owner Queue Dashboard
   getDashboard: () => request<QueueDashboardData>('/api/queue/dashboard'),
@@ -153,8 +202,15 @@ export const api = {
 
   // Settings
   getShopSettings: () => request<ShopSettingsData>('/api/owner/settings'),
-  updateShopSettings: (data: { name: string; category: string; avgServiceDurationMinutes: number }) =>
+  updateShopSettings: (data: { name: string; category?: string; avgServiceDurationMinutes: number }) =>
     request<ShopSettingsData>('/api/owner/settings', { method: 'PUT', body: JSON.stringify(data) }),
+
+  // Category Change Request (₹101)
+  getCategoryChangeStatus: () => request<CategoryChangeStatusData>('/api/owner/category-change/status'),
+  initiateCategoryChange: (requestedCategory: string) =>
+    request<CategoryChangeStatusData>('/api/owner/category-change/request', { method: 'POST', body: JSON.stringify({ requestedCategory }) }),
+  submitCategoryChangePayment: (data: { requestId: number; paymentReference: string }) =>
+    request<CategoryChangeStatusData>('/api/owner/category-change/payment', { method: 'POST', body: JSON.stringify(data) }),
 
   // Minimal Admin
   getAdminConfig: (adminKey: string) =>
@@ -165,6 +221,12 @@ export const api = {
     request<AdminShopItemData[]>('/api/admin/shops', { headers: { 'X-Admin-Key': adminKey } }),
   activateAdminShop: (adminKey: string, data: { shopId: number; planType: string; customDays?: number }) =>
     request<any>('/api/admin/activate', { method: 'POST', headers: { 'X-Admin-Key': adminKey }, body: JSON.stringify(data) }),
+  getAdminCategoryChangeRequests: (adminKey: string) =>
+    request<AdminCategoryChangeItemData[]>('/api/admin/category-requests', { headers: { 'X-Admin-Key': adminKey } }),
+  approveAdminCategoryChange: (adminKey: string, id: number) =>
+    request<any>(`/api/admin/category-requests/${id}/approve`, { method: 'POST', headers: { 'X-Admin-Key': adminKey } }),
+  rejectAdminCategoryChange: (adminKey: string, id: number, reason: string) =>
+    request<any>(`/api/admin/category-requests/${id}/reject`, { method: 'POST', headers: { 'X-Admin-Key': adminKey }, body: JSON.stringify({ reason }) }),
 
   // SSE Stream URLs
   getOwnerSseUrl: () => {

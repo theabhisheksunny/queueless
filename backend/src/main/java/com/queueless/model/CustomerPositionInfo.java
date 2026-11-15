@@ -14,6 +14,8 @@ public class CustomerPositionInfo {
     private boolean queueOpen;
     private String trackingToken;
     private LocalDateTime joinedAt;
+    private LocalDateTime completedAt;
+    private LocalDateTime expiresAt;
 
     public CustomerPositionInfo() {}
 
@@ -101,5 +103,21 @@ public class CustomerPositionInfo {
 
     public void setJoinedAt(LocalDateTime joinedAt) {
         this.joinedAt = joinedAt;
+    }
+
+    public LocalDateTime getCompletedAt() {
+        return completedAt;
+    }
+
+    public void setCompletedAt(LocalDateTime completedAt) {
+        this.completedAt = completedAt;
+    }
+
+    public LocalDateTime getExpiresAt() {
+        return expiresAt;
+    }
+
+    public void setExpiresAt(LocalDateTime expiresAt) {
+        this.expiresAt = expiresAt;
     }
 }

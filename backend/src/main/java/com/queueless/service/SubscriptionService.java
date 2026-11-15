@@ -9,7 +9,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,13 +32,20 @@ public class SubscriptionService {
     private final SubscriptionRepository subscriptionRepository;
     private final ShopRepository shopRepository;
     private final ApplicationSettingRepository settingRepository;
+    private Clock clock;
 
     public SubscriptionService(SubscriptionRepository subscriptionRepository,
                                ShopRepository shopRepository,
-                               ApplicationSettingRepository settingRepository) {
+                               ApplicationSettingRepository settingRepository,
+                               Clock clock) {
         this.subscriptionRepository = subscriptionRepository;
         this.shopRepository = shopRepository;
         this.settingRepository = settingRepository;
+        this.clock = clock;
+    }
+
+    public void setClock(Clock clock) {
+        this.clock = clock;
     }
 
     public String getConfiguredUpiId() {
@@ -86,21 +95,38 @@ public class SubscriptionService {
             response.setPlanType(sub.getPlanType());
             response.setStartDate(sub.getStartDate());
             response.setEndDate(sub.getEndDate());
+            response.setTrialStartedAt(sub.getTrialStartedAt());
+            response.setTrialEndsAt(sub.getTrialEndsAt());
+            response.setTrialConsumedAt(sub.getTrialConsumedAt());
+
             if (response.getPendingPaymentReference() == null) {
                 response.setPendingPaymentReference(sub.getPaymentReference());
             }
 
-            boolean isActive = sub.getStatus() == SubscriptionStatus.ACTIVE &&
-                    (sub.getEndDate() == null || !sub.getEndDate().isBefore(LocalDate.now()));
+            LocalDate today = LocalDate.now(clock);
+            LocalDateTime nowUtc = LocalDateTime.now(clock);
+
+            boolean isExpired;
+            if (sub.getPlanType() == SubscriptionPlan.TRIAL) {
+                isExpired = (sub.getTrialEndsAt() != null && !nowUtc.isBefore(sub.getTrialEndsAt())) ||
+                            (sub.getEndDate() != null && today.isAfter(sub.getEndDate()));
+                response.setTrialExpired(isExpired);
+            } else {
+                isExpired = sub.getEndDate() != null && today.isAfter(sub.getEndDate());
+                response.setTrialExpired(false);
+            }
+
+            boolean isActive = sub.getStatus() == SubscriptionStatus.ACTIVE && !isExpired;
             response.setActive(isActive);
 
-            long days = (sub.getEndDate() != null && !sub.getEndDate().isBefore(LocalDate.now()))
-                    ? ChronoUnit.DAYS.between(LocalDate.now(), sub.getEndDate()) : 0;
+            long days = (isActive && sub.getEndDate() != null)
+                    ? Math.max(0, ChronoUnit.DAYS.between(today, sub.getEndDate())) : 0;
             response.setDaysRemaining(days);
         } else {
             response.setStatus(SubscriptionStatus.EXPIRED);
             response.setActive(false);
             response.setDaysRemaining(0);
+            response.setTrialExpired(true);
         }
 
         return response;
@@ -200,10 +226,10 @@ public class SubscriptionService {
         BigDecimal amount = plan == SubscriptionPlan.YEARLY ? getConfiguredYearlyPrice() : getConfiguredMonthlyPrice();
 
         Subscription latest = subscriptionRepository.findTopByShopIdOrderByEndDateDesc(shop.getId()).orElse(null);
-        LocalDate startDate = LocalDate.now();
-        LocalDate baseDate = LocalDate.now();
+        LocalDate startDate = LocalDate.now(clock);
+        LocalDate baseDate = LocalDate.now(clock);
 
-        if (latest != null && latest.getEndDate() != null && !latest.getEndDate().isBefore(LocalDate.now())) {
+        if (latest != null && latest.getEndDate() != null && !latest.getEndDate().isBefore(LocalDate.now(clock))) {
             // Already active, extend from current end date
             baseDate = latest.getEndDate();
         }

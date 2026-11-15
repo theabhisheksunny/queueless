@@ -32,13 +32,14 @@ if not exist "%JAR_PATH%" (
 echo [OK] Launching QueueLess on http://localhost:8080 ...
 echo.
 echo ========================================================
-echo   Demo Owner Login:  owner@queueless.com / password123
+echo   Demo Mobile Login: 9876543210 (PIN: 123456)
+echo   Demo Email Login:  owner@queueless.com / password123
 echo   Admin Portal:      http://localhost:8080/admin
 echo   Admin Master Key:  admin-secret-queueless-2026
 echo ========================================================
 echo.
 
 start "" "http://localhost:8080"
-java -jar "%JAR_PATH%"
+java -jar "%JAR_PATH%" --spring.profiles.active=local
 
 pause

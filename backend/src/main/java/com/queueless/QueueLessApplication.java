@@ -104,16 +104,24 @@ public class QueueLessApplication {
                 }
             }
 
-            if (!userRepo.existsByEmail("owner@queueless.com")) {
-                try {
-                    String rawPhone = "9876543210";
-                    String normalizedPhone = phoneNormalizationService.normalize(rawPhone);
-                    LocalDateTime now = LocalDateTime.now();
-                    Instant instantNow = Instant.now();
+            String rawPhone = "9876543210";
+            String normalizedPhone = phoneNormalizationService.normalize(rawPhone);
+            LocalDateTime now = LocalDateTime.now();
+            Instant instantNow = Instant.now();
 
+            var existingOwnerOpt = userRepo.findByEmail("owner@queueless.com");
+            if (existingOwnerOpt.isPresent()) {
+                User existing = existingOwnerOpt.get();
+                if (!normalizedPhone.equals(existing.getPhone())) {
+                    existing.setPhone(normalizedPhone);
+                    userRepo.save(existing);
+                    log.info("Updated existing demo shop owner phone to canonical format: {}", normalizedPhone);
+                }
+            } else {
+                try {
                     User demoUser = new User(
                             "owner@queueless.com",
-                            passwordEncoder.encode("password123"),
+                            passwordEncoder.encode("123456"),
                             "Ramesh Sharma",
                             normalizedPhone,
                             UserRole.ROLE_OWNER

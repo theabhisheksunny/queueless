@@ -76,9 +76,9 @@ Write-Host "--------------------------------------------------------" -Foregroun
 Write-Host "🚀 Launching QueueLess Application on http://localhost:8080" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  👤 Demo Shop Owner Login:" -ForegroundColor White
-Write-Host "     Email:    owner@queueless.com" -ForegroundColor Yellow
-Write-Host "     Password: password123" -ForegroundColor Yellow
-Write-Host "     (Or click 1-Click Demo Login on the sign-in page)" -ForegroundColor DarkGray
+Write-Host "     Mobile:   9876543210 (PIN: 123456)" -ForegroundColor Yellow
+Write-Host "     Email:    owner@queueless.com (Password: password123)" -ForegroundColor Yellow
+Write-Host "     (Or click Quick Demo Login on the sign-in page)" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  🔑 Admin Settings:" -ForegroundColor White
 Write-Host "     URL:      http://localhost:8080/admin" -ForegroundColor Yellow
@@ -110,7 +110,7 @@ if (-not $NoBrowser) {
 # 6. Start application
 Push-Location (Join-Path $ProjectRoot "backend")
 try {
-    java -jar $JarPath
+    java -jar $JarPath --spring.profiles.active=local
 } finally {
     Pop-Location
 }

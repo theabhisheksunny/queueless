@@ -147,10 +147,19 @@ export const LoginPage: React.FC = () => {
   const handleDemoLogin = async () => {
     setError(null);
     try {
-      await login({ email: 'owner@queueless.com', password: 'password123' });
+      await login({
+        phone: '9876543210',
+        pin: '123456',
+        deviceFingerprint: navigator.userAgent,
+      });
       navigate('/');
     } catch (err: any) {
-      setError(err.message || 'Demo login failed');
+      try {
+        await login({ email: 'owner@queueless.com', password: 'password123' });
+        navigate('/');
+      } catch (e: any) {
+        setError(err.message || 'Demo login failed');
+      }
     }
   };
 

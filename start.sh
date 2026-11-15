@@ -23,7 +23,8 @@ fi
 echo "[OK] Launching QueueLess on http://localhost:8080 ..."
 echo ""
 echo "========================================================"
-echo "  Demo Owner Login:  owner@queueless.com / password123"
+echo "  Demo Mobile Login: 9876543210 (PIN: 123456)"
+echo "  Demo Email Login:  owner@queueless.com / password123"
 echo "  Admin Portal:      http://localhost:8080/admin"
 echo "  Admin Master Key:  admin-secret-queueless-2026"
 echo "========================================================"
@@ -36,4 +37,4 @@ elif command -v open >/dev/null 2>&1; then
     (sleep 2 && open "http://localhost:8080") &
 fi
 
-exec java -jar "$JAR_PATH"
+exec java -jar "$JAR_PATH" --spring.profiles.active=local

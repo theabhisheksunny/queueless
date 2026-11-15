@@ -64,7 +64,7 @@ test.describe('Lock Business Category & ₹101 Category Change Fee E2E Tests', (
     await page.locator('form select').selectOption('Clinic & Doctor');
 
     // Enter 12-digit UTR
-    const utrNumber = '9876543210' + (timestamp % 100).toString().padStart(2, '0');
+    const utrNumber = '9' + (Date.now() % 100000000000).toString().padStart(11, '0');
     await page.fill('input[placeholder*="432198765432"]', utrNumber);
 
     await page.getByRole('button', { name: /Submit Payment Reference/i }).click();

@@ -32,35 +32,43 @@ It solves exactly one problem: **Allow a shop owner to manage customers waiting 
 
 ---
 
-## 🚀 Quick Start Guide
+## 🚀 Quick Start Guide (One-Click Startup)
 
-### Prerequisites
-- **Java 21** or later (`java -version`)
-- **Node.js 18+** & npm (`node -v`, `npm -v`)
-- **Maven 3.8+** (or use the included project dependencies)
+You can bring up the entire application using a single script from the project root:
+
+- **Windows (PowerShell)**:
+  ```powershell
+  .\start.ps1
+  ```
+- **Windows (Command Prompt / Double-Click)**:
+  ```cmd
+  start.bat
+  ```
+- **macOS / Linux / Git Bash**:
+  ```bash
+  chmod +x start.sh
+  ./start.sh
+  ```
+
+The startup script will automatically:
+1. Verify the Java runtime (Java 21+).
+2. Package the backend JAR and embedded React frontend if not already compiled.
+3. Automatically launch the application on [http://localhost:8080](http://localhost:8080) and open your default browser.
 
 ---
 
-### Option 1: Run Pre-Packaged Monolith (Zero Configuration)
-The frontend build is bundled directly inside the Spring Boot JAR file (`src/main/resources/static`).
+### Credentials & Access Links
+- **QueueLess App**: [http://localhost:8080](http://localhost:8080)
+- **Demo Shop Owner Login**:
+  - Email: `owner@queueless.com`
+  - Password: `password123`
+  - *(Or click the **1-Click Demo Login** button on the sign-in page)*
+- **Admin Settings**: [http://localhost:8080/admin](http://localhost:8080/admin)
+  - Master Admin Key: `admin-secret-queueless-2026`
 
-1. Build the backend:
-   ```bash
-   cd backend
-   mvn clean package -DskipTests
-   ```
-2. Run the executable JAR:
-   ```bash
-   java -jar target/queueless-backend-1.0.0.jar
-   ```
-3. Open your browser:
-   - **QueueLess App**: [http://localhost:8080](http://localhost:8080)
-   - **Pre-seeded Demo Owner Login**:
-     - Email: `owner@queueless.com`
-     - Password: `password123`
-     - *(Or click the **1-Click Demo Login** button on the sign-in page)*
-   - **Admin Management**: [http://localhost:8080/admin](http://localhost:8080/admin)
-     - Admin Master Key: `admin-secret-queueless-2026`
+---
+
+### Manual Execution Options
 
 ---
 

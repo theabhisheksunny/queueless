@@ -17,14 +17,13 @@ Write-Host "========================================================" -Foregroun
 Write-Host ""
 
 # 1. Check for Java
-try {
-    $javaVersionOutput = java -version 2>&1 | Out-String
-    Write-Host "[✓] Java runtime detected." -ForegroundColor Green
-} catch {
+$javaCmd = Get-Command java -ErrorAction SilentlyContinue
+if (-not $javaCmd) {
     Write-Host "[✗] Java is not installed or not in your PATH." -ForegroundColor Red
     Write-Host "    Please install Java 21 or later from https://adoptium.net/" -ForegroundColor Yellow
     Exit 1
 }
+Write-Host "[✓] Java runtime detected: $($javaCmd.Source)" -ForegroundColor Green
 
 # 2. Check if JAR exists or if rebuild requested
 $NeedsBuild = $Build -or (-not (Test-Path $JarPath))
@@ -87,7 +86,18 @@ Write-Host "     Key:      admin-secret-queueless-2026" -ForegroundColor Yellow
 Write-Host "--------------------------------------------------------" -ForegroundColor DarkGray
 Write-Host ""
 
-# 4. Open browser if not disabled
+# 4. Check if port 8080 is already in use
+$portActive = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue
+if ($portActive) {
+    Write-Host "[!] Port 8080 is already active! QueueLess is already running." -ForegroundColor Green
+    Write-Host "    Access it directly at: http://localhost:8080" -ForegroundColor Cyan
+    if (-not $NoBrowser) {
+        try { Start-Process "http://localhost:8080" } catch {}
+    }
+    Exit 0
+}
+
+# 5. Open browser in background after startup
 if (-not $NoBrowser) {
     Start-Job -ScriptBlock {
         Start-Sleep -Seconds 3
@@ -97,7 +107,7 @@ if (-not $NoBrowser) {
     } | Out-Null
 }
 
-# 5. Start application
+# 6. Start application
 Push-Location (Join-Path $ProjectRoot "backend")
 try {
     java -jar $JarPath

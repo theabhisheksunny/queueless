@@ -148,6 +148,18 @@ export const translations = {
     liveUpdatesActive: 'Live Updates Connected',
     reconnecting: 'Reconnecting...',
     
+    // Push Notifications
+    pushInvitationTitle: 'Stay updated without keeping this page open.',
+    pushInvitationDesc: 'QueueLess can notify you when your queue position moves forward, when your turn is called, and when service starts.',
+    enableNotificationsBtn: 'Enable Live Notifications',
+    notNowBtn: 'Not Now',
+    notificationsActive: 'Live Notifications Active 🔔',
+    notificationsActiveDesc: 'We will alert you on this device when it is your turn.',
+    disableNotificationsBtn: 'Turn Off',
+    notificationsBlocked: 'Notifications blocked in browser settings. Live tracking continues on this page.',
+    pushUnsupported: 'Push notifications are not supported on this browser. Live updates will continue on this page.',
+    iosPwaHint: "On iPhone: Tap Share and select 'Add to Home Screen' to enable push notifications.",
+    
     // Subscription
     subscription: 'Subscription',
     subActive: 'Subscription Active',
@@ -362,6 +374,18 @@ export const translations = {
     tokenExpiredMsg: 'आपकी सेवा पहले ही पूरी हो चुकी है। यदि आपको अन्य सेवा चाहिए, तो कृपया दुकानदार से संपर्क करें या नया टोकन प्राप्त करने के लिए दुकान का क्यूआर कोड स्कैन करें।',
     liveUpdatesActive: 'लाइव अपडेट सक्रिय',
     reconnecting: 'पुनः कनेक्ट हो रहा है...',
+    
+    // Push Notifications
+    pushInvitationTitle: 'इस पेज को खुला रखे बिना भी अपडेट रहें।',
+    pushInvitationDesc: 'कतार आगे बढ़ने, आपकी बारी आने और सेवा शुरू होने पर QueueLess आपको सूचना भेज सकता है।',
+    enableNotificationsBtn: 'लाइव सूचनाएं चालू करें',
+    notNowBtn: 'अभी नहीं',
+    notificationsActive: 'लाइव सूचनाएं सक्रिय हैं 🔔',
+    notificationsActiveDesc: 'आपकी बारी आने पर हम आपके डिवाइस पर अलर्ट भेजेंगे।',
+    disableNotificationsBtn: 'बंद करें',
+    notificationsBlocked: 'ब्राउज़र सेटिंग्स में सूचनाएं अवरुद्ध हैं। इस पेज पर लाइव ट्रैकिंग जारी रहेगी।',
+    pushUnsupported: 'इस ब्राउज़र पर पुश सूचनाएं समर्थित नहीं हैं। लाइव अपडेट इस पेज पर जारी रहेंगे।',
+    iosPwaHint: "iPhone पर: सूचनाएं पाने के लिए शेयर पर टैप करें और 'होम स्क्रीन में जोड़ें' चुनें।",
     
     // Subscription
     subscription: 'सदस्यता (Subscription)',

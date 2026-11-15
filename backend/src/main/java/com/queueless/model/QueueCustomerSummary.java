@@ -18,6 +18,7 @@ public class QueueCustomerSummary {
     private LocalDateTime calledAt;
     private LocalDateTime servedAt;
     private LocalDateTime completedAt;
+    private Integer lastPushedPosition;
 
     public QueueCustomerSummary() {}
 
@@ -133,5 +134,13 @@ public class QueueCustomerSummary {
 
     public void setCompletedAt(LocalDateTime completedAt) {
         this.completedAt = completedAt;
+    }
+
+    public Integer getLastPushedPosition() {
+        return lastPushedPosition;
+    }
+
+    public void setLastPushedPosition(Integer lastPushedPosition) {
+        this.lastPushedPosition = lastPushedPosition;
     }
 }

@@ -12,6 +12,7 @@ It solves exactly one problem: **Allow a shop owner to manage customers waiting 
 - **No App Installation / No Sign-up for Customers**: Customers simply scan the shop's printed or on-screen QR code (`/join/{publicQueueId}`), enter their name, and immediately get a digital token with a private live-tracking link (`/track/{trackingToken}`).
 - **Real-Time Live Updates via Server-Sent Events (SSE)**: Both the owner's dashboard and the customer's tracking screen update instantly when tokens are called, completed, skipped, or added—without manual page refreshing.
 - **Audio Chime & Visual Notifications**: Alert tones and glowing badges notify customers when their token is called or being served.
+- **Customer Live Queue Push Notifications (PWA + Web Push)**: Standard VAPID-authenticated Web Push notifications. Customers can enable notifications with one tap after joining to receive live milestone updates (e.g. 5, 3, 2, 1 ahead), priority alerts when called, and turn-completion updates without keeping the browser tab open. Single-tag notification replacement prevents notification spam. Seamless iOS 16.4+ and Android PWA support.
 - **Sequential Daily Tokens & Concurrency-Safe**: Tokens start at `001, 002, 003...` for each session. High concurrency thread-safe token generator prevents duplicate or skipped numbers.
 - **In-Memory Speed + Full Database Persistence**: Active queue operations leverage an in-memory `ArrayList` (FIFO order) and `ConcurrentHashMap` (O(1) lookup) synchronized with PostgreSQL / JPA transactions.
 - **Bilingual Interface**: Seamless 1-click toggle between **English** and **Hindi (हिंदी)** across all owner and customer screens.
@@ -202,6 +203,8 @@ npx playwright test
 - **Shop-Level Isolation**: Owners can only view and modify queue data belonging to their authenticated shop ID.
 - **Unpredictable Public Identifiers**: QR codes and customer tracking URLs use cryptographically secure UUID tokens rather than sequential database IDs, preventing enumeration attacks.
 - **Concurrency Safety**: Active queue token counters and in-memory lists are synchronized to guarantee monotonic token issuance even under simultaneous customer requests.
+- **Web Push VAPID Security**: Push subscriptions are strictly bound to the customer's unique `trackingToken`. Notification payloads are encrypted with ECDSA P-256 (VAPID) and authenticated. Auto-generated ephemeral keys for local development or configurable via environment variables (`APP_WEBPUSH_VAPID_PUBLIC_KEY`, `APP_WEBPUSH_VAPID_PRIVATE_KEY`, `APP_WEBPUSH_VAPID_SUBJECT`).
+- **Completed Token 15-Minute Expiry Policy**: Completed tokens allow private tracking for 15 minutes post-completion, after which public access expires with HTTP 410 Gone. Completed tokens can never be reactivated.
 
 ---
 

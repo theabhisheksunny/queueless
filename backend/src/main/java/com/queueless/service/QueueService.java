@@ -2,6 +2,7 @@ package com.queueless.service;
 
 import com.queueless.dto.*;
 import com.queueless.entity.*;
+import com.queueless.event.QueueEvent;
 import com.queueless.exception.TokenExpiredException;
 import com.queueless.model.CustomerPositionInfo;
 import com.queueless.model.QueueCustomerSummary;
@@ -14,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +42,7 @@ public class QueueService {
     private final ActiveQueueManager activeQueueManager;
     private final SseEmitterService sseEmitterService;
     private final EntitlementService entitlementService;
+    private ApplicationEventPublisher eventPublisher;
 
     @Value("${queueless.token.completed-expiration-minutes:15}")
     private long completedExpirationMinutes = 15;
@@ -52,7 +55,8 @@ public class QueueService {
                         SubscriptionRepository subscriptionRepository,
                         ActiveQueueManager activeQueueManager,
                         SseEmitterService sseEmitterService,
-                        EntitlementService entitlementService) {
+                        EntitlementService entitlementService,
+                        @Autowired(required = false) ApplicationEventPublisher eventPublisher) {
         this.shopRepository = shopRepository;
         this.sessionRepository = sessionRepository;
         this.customerRepository = customerRepository;
@@ -60,6 +64,12 @@ public class QueueService {
         this.activeQueueManager = activeQueueManager;
         this.sseEmitterService = sseEmitterService;
         this.entitlementService = entitlementService;
+        this.eventPublisher = eventPublisher;
+    }
+
+    @Autowired(required = false)
+    public void setEventPublisher(ApplicationEventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
     }
 
     @Autowired(required = false)
@@ -159,6 +169,10 @@ public class QueueService {
         }
 
         activeQueueManager.setQueueStatus(shopId, false);
+        if (eventPublisher != null) {
+            Shop shop = shopRepository.findById(shopId).orElse(null);
+            eventPublisher.publishEvent(QueueEvent.forQueueClosed(shopId, shop != null ? shop.getName() : ""));
+        }
         notifyQueueUpdated(shopId);
         return getDashboard(shopId);
     }
@@ -212,6 +226,18 @@ public class QueueService {
         notifyQueueUpdated(shopId);
 
         CustomerPositionInfo positionInfo = activeQueue.getCustomerPositionInfo(trackingToken);
+
+        if (eventPublisher != null) {
+            eventPublisher.publishEvent(QueueEvent.forCustomer(
+                    QueueEvent.Type.CUSTOMER_JOINED,
+                    shopId,
+                    shop.getName(),
+                    trackingToken,
+                    tokenNumber,
+                    positionInfo != null ? positionInfo.getPeopleAhead() : 0,
+                    positionInfo != null ? positionInfo.getEstimatedWaitMinutes() : 0
+            ));
+        }
 
         return new CustomerJoinResponse(
                 tokenNumber,
@@ -366,6 +392,29 @@ public class QueueService {
 
         activeQueueManager.updateCustomerStatus(shopId, customerId, newStatus, customer.getCompletedAt());
 
+        // Publish push domain events
+        if (eventPublisher != null) {
+            Shop shop = customer.getQueueSession().getShop();
+            String shopName = shop != null ? shop.getName() : "";
+            if (newStatus == CustomerQueueStatus.CALLED) {
+                eventPublisher.publishEvent(QueueEvent.forCustomer(
+                        QueueEvent.Type.TOKEN_CALLED, shopId, shopName, customer.getTrackingToken(), customer.getTokenNumber(), 0, 0
+                ));
+            } else if (newStatus == CustomerQueueStatus.SERVING) {
+                eventPublisher.publishEvent(QueueEvent.forCustomer(
+                        QueueEvent.Type.SERVICE_STARTED, shopId, shopName, customer.getTrackingToken(), customer.getTokenNumber(), 0, 0
+                ));
+            } else if (newStatus == CustomerQueueStatus.COMPLETED) {
+                eventPublisher.publishEvent(QueueEvent.forCustomer(
+                        QueueEvent.Type.SERVICE_COMPLETED, shopId, shopName, customer.getTrackingToken(), customer.getTokenNumber(), 0, 0
+                ));
+            } else if (newStatus == CustomerQueueStatus.CANCELLED) {
+                eventPublisher.publishEvent(QueueEvent.forCustomer(
+                        QueueEvent.Type.CUSTOMER_REMOVED, shopId, shopName, customer.getTrackingToken(), customer.getTokenNumber(), 0, 0
+                ));
+            }
+        }
+
         // If completed, schedule customer SSE emitter closure after expiration duration
         if (newStatus == CustomerQueueStatus.COMPLETED && customer.getTrackingToken() != null) {
             sseEmitterService.scheduleEmitterExpiration(customer.getTrackingToken(), this.completedExpirationMinutes * 60 * 1000L);
@@ -417,6 +466,13 @@ public class QueueService {
 
             Long shopId = customer.getQueueSession().getShop().getId();
             activeQueueManager.updateCustomerStatus(shopId, customer.getId(), CustomerQueueStatus.LEFT);
+
+            if (eventPublisher != null) {
+                Shop shop = customer.getQueueSession().getShop();
+                eventPublisher.publishEvent(QueueEvent.forCustomer(
+                        QueueEvent.Type.CUSTOMER_LEFT, shopId, shop != null ? shop.getName() : "", customer.getTrackingToken(), customer.getTokenNumber(), 0, 0
+                ));
+            }
 
             notifyQueueUpdated(shopId);
         }
@@ -604,6 +660,36 @@ public class QueueService {
                             posInfo.setExpiresAt(posInfo.getCompletedAt().plusMinutes(this.completedExpirationMinutes));
                         }
                         sseEmitterService.notifyCustomer(customer.getTrackingToken(), "POSITION_UPDATED", posInfo);
+                    }
+                }
+            }
+        }
+
+        // Publish milestone push updates for waiting customers (milestones: 5, 3, 2, 1 ahead)
+        if (activeQueue != null && eventPublisher != null) {
+            Shop shop = shopRepository.findById(shopId).orElse(null);
+            String shopName = shop != null ? shop.getName() : "";
+            int avgDuration = shop != null ? shop.getAvgServiceDurationMinutes() : 10;
+
+            for (QueueCustomerSummary customer : activeQueue.getCustomerSnapshot()) {
+                if (customer.getStatus() == CustomerQueueStatus.WAITING && customer.getTrackingToken() != null) {
+                    CustomerPositionInfo posInfo = activeQueue.getCustomerPositionInfo(customer.getTrackingToken());
+                    if (posInfo != null) {
+                        int ahead = posInfo.getPeopleAhead();
+                        if (ahead == 5 || ahead == 3 || ahead == 2 || ahead == 1) {
+                            if (customer.getLastPushedPosition() == null || customer.getLastPushedPosition() != ahead) {
+                                customer.setLastPushedPosition(ahead);
+                                eventPublisher.publishEvent(QueueEvent.forCustomer(
+                                        QueueEvent.Type.POSITION_MILESTONE,
+                                        shopId,
+                                        shopName,
+                                        customer.getTrackingToken(),
+                                        customer.getTokenNumber(),
+                                        ahead,
+                                        ahead * avgDuration
+                                ));
+                            }
+                        }
                     }
                 }
             }

@@ -57,7 +57,7 @@ public class SecurityConfig {
                         .requestMatchers("/h2-console/**").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/owner/**", "/api/queue/**").authenticated()
-                        .requestMatchers("/", "/index.html", "/assets/**", "/*.svg", "/*.ico", "/*.json", "/join/**", "/track/**", "/login", "/subscription", "/settings", "/admin").permitAll()
+                        .requestMatchers("/", "/index.html", "/sw.js", "/manifest.webmanifest", "/*.webmanifest", "/*.js", "/assets/**", "/*.svg", "/*.ico", "/*.json", "/join/**", "/track/**", "/login", "/subscription", "/settings", "/admin").permitAll()
                         .anyRequest().permitAll()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

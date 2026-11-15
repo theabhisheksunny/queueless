@@ -189,7 +189,7 @@ export const api = {
   removeCustomer: (customerId: number) =>
     request<QueueDashboardData>(`/api/queue/customers/${customerId}`, { method: 'DELETE' }),
 
-  // Public Customer QR
+  // Public Customer QR & Push Notifications
   joinQueue: (publicQueueId: string, data: { customerName: string; customerPhone?: string }) =>
     request<any>(`/api/public/queue/${publicQueueId}/join`, { method: 'POST', body: JSON.stringify(data) }),
   trackPosition: (trackingToken: string) =>
@@ -198,6 +198,17 @@ export const api = {
     request<CustomerPositionData>(`/api/public/queue/track/${trackingToken}/leave`, { method: 'POST' }),
   rejoinQueue: (trackingToken: string) =>
     request<CustomerPositionData>(`/api/public/queue/track/${trackingToken}/rejoin`, { method: 'POST' }),
+  getVapidPublicKey: () =>
+    request<{ publicKey: string }>('/api/public/queue/vapid-public-key'),
+  registerPushSubscription: (trackingToken: string, subscription: { endpoint: string; p256dh: string; auth: string; userAgent?: string }) =>
+    request<{ success: boolean; message: string }>(`/api/public/queue/track/${trackingToken}/push-subscription`, {
+      method: 'POST',
+      body: JSON.stringify(subscription),
+    }),
+  unregisterPushSubscription: (trackingToken: string) =>
+    request<{ success: boolean; message: string }>(`/api/public/queue/track/${trackingToken}/push-subscription`, {
+      method: 'DELETE',
+    }),
 
   // Subscription
   getSubscriptionStatus: () => request<SubscriptionStatusData>('/api/owner/subscription'),

@@ -32,47 +32,75 @@ It solves exactly one problem: **Allow a shop owner to manage customers waiting 
 
 ---
 
-## 🚀 Quick Start Guide (One-Click Startup)
+## 🚀 Quick Start Guide (One-Click Startup Scripts)
 
-You can bring up the entire application using a single script from the project root:
+You can bring up the entire monolithic application (backend REST APIs + embedded frontend UI) using a single script from the project root.
 
-- **Windows (PowerShell)**:
+### 1. Windows (PowerShell)
+Open PowerShell in the project directory and run:
+```powershell
+.\start.ps1
+```
+
+> [!TIP]
+> **PowerShell Execution Policy Tip**: If PowerShell restricts script execution on your system, run:
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File .\start.ps1
+> ```
+
+**Optional PowerShell Flags**:
+- Force re-compilation of frontend and backend:
   ```powershell
-  .\start.ps1
+  .\start.ps1 -Build
   ```
-- **Windows (Command Prompt / Double-Click)**:
-  ```cmd
-  start.bat
+- Start server in background without auto-opening the browser:
+  ```powershell
+  .\start.ps1 -NoBrowser
   ```
-- **macOS / Linux / Git Bash**:
-  ```bash
-  chmod +x start.sh
-  ./start.sh
-  ```
-
-The startup script will automatically:
-1. Verify the Java runtime (Java 21+).
-2. Package the backend JAR and embedded React frontend if not already compiled.
-3. Automatically launch the application on [http://localhost:8080](http://localhost:8080) and open your default browser.
 
 ---
 
-### Credentials & Access Links
+### 2. Windows (Command Prompt or Double-Click)
+- **Via Command Prompt**:
+  ```cmd
+  start.bat
+  ```
+- **Via File Explorer**:
+  Simply double-click `start.bat` in the project root folder.
+
+---
+
+### 3. macOS / Linux / Git Bash
+Open your terminal in the project directory and run:
+```bash
+chmod +x start.sh
+./start.sh
+```
+
+---
+
+### ⚙️ What the Startup Script Does Automatically
+
+1. **Java 21+ Verification**: Automatically confirms that a compatible Java runtime is installed and available in your `PATH`.
+2. **Auto-Packaging**: Checks for `backend/target/queueless-backend-1.0.0.jar`. If missing, it builds the React frontend assets (`npm run build`), copies them to Spring Boot's static resources, and compiles the backend with Maven (`mvn clean package -DskipTests`).
+3. **Port In-Use Detection**: Checks if port `8080` is already active to prevent port collision errors and displays direct access instructions.
+4. **Instant Launch & Browser Opening**: Boots up the application and automatically opens [http://localhost:8080](http://localhost:8080) in your default browser.
+
+---
+
+### 🔑 Default Credentials & Quick Access
+
 - **QueueLess App**: [http://localhost:8080](http://localhost:8080)
 - **Demo Shop Owner Login**:
   - Email: `owner@queueless.com`
   - Password: `password123`
   - *(Or click the **1-Click Demo Login** button on the sign-in page)*
-- **Admin Settings**: [http://localhost:8080/admin](http://localhost:8080/admin)
+- **Admin Configuration Screen**: [http://localhost:8080/admin](http://localhost:8080/admin)
   - Master Admin Key: `admin-secret-queueless-2026`
 
 ---
 
-### Manual Execution Options
-
----
-
-### Option 2: Run in Development Mode (Hot Reload)
+### 🛠️ Developer Mode (Hot Reload)
 
 #### 1. Start the Spring Boot Backend
 ```bash

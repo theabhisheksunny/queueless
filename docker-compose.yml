@@ -40,6 +40,8 @@ services:
       APP_WEBPUSH_VAPID_PUBLIC_KEY: ${APP_WEBPUSH_VAPID_PUBLIC_KEY:-}
       APP_WEBPUSH_VAPID_PRIVATE_KEY: ${APP_WEBPUSH_VAPID_PRIVATE_KEY:-}
       APP_WEBPUSH_VAPID_SUBJECT: ${APP_WEBPUSH_VAPID_SUBJECT:-mailto:support@queueless.in}
+      SPRING_FLYWAY_ENABLED: "true"
+      SPRING_JPA_HIBERNATE_DDL_AUTO: "validate"
     volumes:
       - appdata:/app/data
 

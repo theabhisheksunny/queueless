@@ -17,6 +17,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Optional;
 
 @Service
 public class AuthService {
@@ -28,7 +29,6 @@ public class AuthService {
     private final QueueSessionRepository sessionRepository;
     private final QueueCustomerRepository customerRepository;
     private final PhoneNormalizationService phoneNormalizationService;
-    private final OtpVerificationService otpVerificationService;
     private final EntitlementService entitlementService;
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
@@ -42,7 +42,6 @@ public class AuthService {
                        QueueSessionRepository sessionRepository,
                        QueueCustomerRepository customerRepository,
                        PhoneNormalizationService phoneNormalizationService,
-                       OtpVerificationService otpVerificationService,
                        EntitlementService entitlementService,
                        PasswordEncoder passwordEncoder,
                        AuthenticationManager authenticationManager,
@@ -55,7 +54,6 @@ public class AuthService {
         this.sessionRepository = sessionRepository;
         this.customerRepository = customerRepository;
         this.phoneNormalizationService = phoneNormalizationService;
-        this.otpVerificationService = otpVerificationService;
         this.entitlementService = entitlementService;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
@@ -66,7 +64,6 @@ public class AuthService {
     public void setClock(Clock clock) {
         this.clock = clock;
         this.entitlementService.setClock(clock);
-        this.otpVerificationService.setClock(clock);
         this.tokenProvider.setClock(clock);
     }
 
@@ -81,28 +78,24 @@ public class AuthService {
 
         // Check if an account already exists with this phone number
         if (userRepository.existsByPhone(normalizedPhone)) {
-            throw new IllegalArgumentException("An account with this verified mobile number already exists. Please log in.");
+            throw new IllegalArgumentException("An account with this mobile number already exists. Please log in.");
         }
 
         // Check persistent trial eligibility ledger (survives account deletion)
         if (trialEligibilityLedgerRepository.existsByNormalizedPhone(normalizedPhone)) {
             throw new TrialAlreadyConsumedException(
-                    "A 7-day free trial has already been claimed for this verified mobile number. This identity is not eligible for another free trial. Please log in or contact support."
+                    "A 7-day free trial has already been claimed for this mobile number. This identity is not eligible for another free trial. Please log in or contact support."
             );
         }
 
-        // Verify mobile OTP
-        otpVerificationService.verifyOtp(normalizedPhone, request.getOtp());
-
-        // Resolve PIN or password
+        // Validate 6-digit Secret PIN
         String credential;
         if (request.getPin() != null && !request.getPin().isBlank()) {
             String pin = request.getPin().trim();
             if (!pin.matches("^\\d{6}$")) {
                 throw new IllegalArgumentException("PIN must be exactly 6 digits.");
             }
-            if (request.getConfirmPin() != null && !request.getConfirmPin().isBlank()
-                    && !pin.equals(request.getConfirmPin().trim())) {
+            if (request.getConfirmPin() == null || !pin.equals(request.getConfirmPin().trim())) {
                 throw new IllegalArgumentException("PIN and Confirm PIN do not match.");
             }
             credential = pin;
@@ -125,11 +118,11 @@ public class AuthService {
             throw new IllegalArgumentException("An account with this email already exists.");
         }
 
-        // Create User
+        // Create User with BCrypt hashed credential (never stored plaintext)
         User user = new User(
                 email,
                 passwordEncoder.encode(credential),
-                request.getFullName().trim(),
+                request.getFullName() != null ? request.getFullName().trim() : "Shop Owner",
                 normalizedPhone,
                 UserRole.ROLE_OWNER
         );
@@ -143,7 +136,7 @@ public class AuthService {
         // Create Shop (Duplicate shop names are permitted; shops are strictly keyed by internal shopId)
         Shop shop = new Shop(
                 user,
-                request.getShopName().trim(),
+                request.getShopName() != null ? request.getShopName().trim() : "My Shop",
                 request.getCategory() != null ? request.getCategory().trim() : "General",
                 request.getAvgServiceDurationMinutes() != null ? request.getAvgServiceDurationMinutes() : 15
         );
@@ -213,9 +206,17 @@ public class AuthService {
         }
 
         String normalizedPhone = phoneNormalizationService.normalize(request.getPhone());
-        User user = userRepository.findByPhone(normalizedPhone)
-                .orElseThrow(() -> new BadCredentialsException("No account found with this mobile number. Please check the number or register."));
+        Optional<User> userOpt = userRepository.findByPhone(normalizedPhone);
+        if (userOpt.isEmpty()) {
+            // Anti-enumeration defense: perform dummy BCrypt comparison and progressive delay
+            passwordEncoder.matches("000000", "$2a$10$7EqJtq98hPqEX7fNZaFWoO.fvyuW.zY3qJ7gQ5n4Vf8kL6YwzO7Gm");
+            try {
+                Thread.sleep(200L);
+            } catch (InterruptedException ignored) {}
+            throw new BadCredentialsException("Invalid mobile number or PIN.");
+        }
 
+        User user = userOpt.get();
         LocalDateTime now = LocalDateTime.now(clock);
 
         // Lockout check
@@ -240,7 +241,7 @@ public class AuthService {
                     Thread.sleep(Math.min(attempts * 200L, 800L));
                 } catch (InterruptedException ignored) {}
                 int remaining = 5 - attempts;
-                throw new BadCredentialsException("Incorrect PIN. " + remaining + " attempt(s) remaining before account lockout.");
+                throw new BadCredentialsException("Invalid mobile number or PIN. " + remaining + " attempt(s) remaining before account lockout.");
             }
         }
 
@@ -300,8 +301,9 @@ public class AuthService {
     }
 
     /**
-     * Resets 6-digit PIN using mobile OTP verification.
-     * Revokes all previous sessions and tokens immediately (sets credentialsUpdatedAt).
+     * Resets 6-digit PIN.
+     * When currentPin is supplied, verifies ownership against existing PIN.
+     * Revokes all previous sessions immediately (sets credentialsUpdatedAt).
      * Clears lockout.
      * Preserves subscription and trial history without resetting eligibility.
      */
@@ -318,12 +320,15 @@ public class AuthService {
         }
 
         String normalizedPhone = phoneNormalizationService.normalize(request.getPhone());
-        otpVerificationService.verifyOtp(normalizedPhone, request.getOtp());
-
         User user = userRepository.findByPhone(normalizedPhone)
-                .orElseThrow(() -> new IllegalArgumentException("No account found with verified mobile number: " + normalizedPhone));
+                .orElseThrow(() -> new IllegalArgumentException("No account found with mobile number: " + normalizedPhone));
 
-        LocalDateTime now = LocalDateTime.now(clock);
+        if (request.getCurrentPin() != null && !request.getCurrentPin().isBlank()) {
+            if (!passwordEncoder.matches(request.getCurrentPin(), user.getPassword())) {
+                throw new BadCredentialsException("Current PIN is incorrect.");
+            }
+        }
+
         user.setPassword(passwordEncoder.encode(request.getNewPin()));
         user.setCredentialsUpdatedAt(clock.instant());
         user.setFailedPinAttempts(0);
@@ -335,16 +340,38 @@ public class AuthService {
     }
 
     /**
+     * Admin-authenticated PIN reset for customer support assistance.
+     */
+    @Transactional
+    public void adminResetPin(String phone, String newPin) {
+        if (newPin == null || !newPin.matches("^\\d{6}$")) {
+            throw new IllegalArgumentException("New PIN must be exactly 6 digits.");
+        }
+        String normalizedPhone = phoneNormalizationService.normalize(phone);
+        User user = userRepository.findByPhone(normalizedPhone)
+                .orElseThrow(() -> new IllegalArgumentException("No account found with mobile number: " + normalizedPhone));
+        user.setPassword(passwordEncoder.encode(newPin));
+        user.setCredentialsUpdatedAt(clock.instant());
+        user.setFailedPinAttempts(0);
+        user.setPinLockedUntil(null);
+        userRepository.save(user);
+    }
+
+    /**
      * Legacy password reset compatibility.
      * Revokes active sessions and clears lockout.
      */
     @Transactional
     public void resetPassword(PasswordResetRequest request) {
         String normalizedPhone = phoneNormalizationService.normalize(request.getPhone());
-        otpVerificationService.verifyOtp(normalizedPhone, request.getOtp().trim());
-
         User user = userRepository.findByPhone(normalizedPhone)
-                .orElseThrow(() -> new IllegalArgumentException("No account found with verified mobile number: " + normalizedPhone));
+                .orElseThrow(() -> new IllegalArgumentException("No account found with mobile number: " + normalizedPhone));
+
+        if (request.getCurrentPassword() != null && !request.getCurrentPassword().isBlank()) {
+            if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
+                throw new BadCredentialsException("Current password is incorrect.");
+            }
+        }
 
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         user.setCredentialsUpdatedAt(clock.instant());

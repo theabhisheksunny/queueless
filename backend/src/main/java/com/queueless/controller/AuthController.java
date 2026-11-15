@@ -2,7 +2,6 @@ package com.queueless.controller;
 
 import com.queueless.dto.*;
 import com.queueless.service.AuthService;
-import com.queueless.service.OtpVerificationService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -15,11 +14,9 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
-    private final OtpVerificationService otpVerificationService;
 
-    public AuthController(AuthService authService, OtpVerificationService otpVerificationService) {
+    public AuthController(AuthService authService) {
         this.authService = authService;
-        this.otpVerificationService = otpVerificationService;
     }
 
     private String extractClientIp(HttpServletRequest request) {
@@ -71,19 +68,6 @@ public class AuthController {
     public ResponseEntity<Map<String, String>> resetPin(@Valid @RequestBody PinResetRequest request) {
         authService.resetPin(request);
         return ResponseEntity.ok(Map.of("message", "PIN reset successfully. Active sessions revoked. You can now log in."));
-    }
-
-    @PostMapping("/otp/send")
-    public ResponseEntity<OtpSendResponse> sendOtp(@Valid @RequestBody OtpSendRequest request, HttpServletRequest httpRequest) {
-        String clientIp = extractClientIp(httpRequest);
-        OtpSendResponse response = otpVerificationService.sendOtp(request.getPhone(), clientIp);
-        return ResponseEntity.ok(response);
-    }
-
-    @PostMapping("/otp/verify")
-    public ResponseEntity<Map<String, Object>> verifyOtp(@Valid @RequestBody OtpVerifyRequest request) {
-        boolean verified = otpVerificationService.verifyOtp(request.getPhone(), request.getOtp());
-        return ResponseEntity.ok(Map.of("verified", verified, "message", "OTP verified successfully."));
     }
 
     @PostMapping("/reset-password")

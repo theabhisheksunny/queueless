@@ -1,7 +1,6 @@
 package com.queueless.config;
 
 import com.queueless.exception.AccountLockedException;
-import com.queueless.exception.SmsProviderUnavailableException;
 import com.queueless.exception.SubscriptionRequiredException;
 import com.queueless.exception.TokenExpiredException;
 import com.queueless.exception.TrialAlreadyConsumedException;
@@ -72,7 +71,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<Map<String, Object>> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
-        return createErrorResponse(HttpStatus.CONFLICT, "A registration or trial record already exists for this verified mobile identity.");
+        return createErrorResponse(HttpStatus.CONFLICT, "A registration or trial record already exists for this mobile identity.");
     }
 
     @ExceptionHandler(IllegalStateException.class)
@@ -91,17 +90,6 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.LOCKED).body(body);
     }
 
-    @ExceptionHandler(SmsProviderUnavailableException.class)
-    public ResponseEntity<Map<String, Object>> handleSmsProviderUnavailable(SmsProviderUnavailableException ex) {
-        Map<String, Object> body = new HashMap<>();
-        body.put("timestamp", LocalDateTime.now());
-        body.put("status", HttpStatus.SERVICE_UNAVAILABLE.value());
-        body.put("error", "SMS Provider Unavailable");
-        body.put("code", "SMS_PROVIDER_UNAVAILABLE");
-        body.put("message", ex.getMessage());
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
-    }
-
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<Map<String, Object>> handleBadCredentials(BadCredentialsException ex) {
         return createErrorResponse(HttpStatus.UNAUTHORIZED, ex.getMessage() != null ? ex.getMessage() : "Invalid credentials");
@@ -110,6 +98,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<Map<String, Object>> handleAccessDenied(AccessDeniedException ex) {
         return createErrorResponse(HttpStatus.FORBIDDEN, ex.getMessage());
+    }
+
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNoResourceFound(org.springframework.web.servlet.resource.NoResourceFoundException ex) {
+        return createErrorResponse(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

@@ -1,8 +1,7 @@
 package com.queueless.dto;
 
-import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Pattern;
 
 public class RegisterRequest {
 
@@ -13,15 +12,15 @@ public class RegisterRequest {
 
     private String password;
 
+    @NotBlank(message = "A 6-digit PIN is required")
+    @Pattern(regexp = "^\\d{6}$", message = "PIN must be exactly 6 digits")
     private String pin;
 
+    @NotBlank(message = "Confirm PIN is required")
     private String confirmPin;
 
     @NotBlank(message = "Mobile number is required")
     private String phone;
-
-    @NotBlank(message = "OTP is required")
-    private String otp;
 
     private String deviceFingerprint;
 
@@ -80,14 +79,6 @@ public class RegisterRequest {
 
     public void setPhone(String phone) {
         this.phone = phone;
-    }
-
-    public String getOtp() {
-        return otp;
-    }
-
-    public void setOtp(String otp) {
-        this.otp = otp;
     }
 
     public String getDeviceFingerprint() {

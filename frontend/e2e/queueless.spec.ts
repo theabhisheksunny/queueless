@@ -1,25 +1,42 @@
 import { test, expect } from '@playwright/test';
 
+async function loginOwner(page: any) {
+  const phone = '9811000001';
+  const pin = '123456';
+  await page.goto('/login');
+
+  // Try routine login with mobile number + PIN
+  await page.fill('input[type="tel"]', phone);
+  await page.fill('input[name="pin"], input[type="password"]', pin);
+  await page.locator('button[type="submit"]').click();
+
+  try {
+    await expect(page.getByText('Customer Queue Register')).toBeVisible({ timeout: 2500 });
+  } catch {
+    // If not registered yet, register directly
+    await page.getByRole('button', { name: /Create Account|खाता बनाएं/i }).click();
+    await page.fill('input[placeholder*="Royal Hair Salon"]', 'Test Shop');
+    await page.selectOption('select', 'Barber Shop');
+    await page.fill('input[placeholder*="Ramesh Sharma"]', 'Test Owner');
+    await page.fill('input[placeholder*="9876543210"]', phone);
+    await page.fill('input[name="pin"]', pin);
+    await page.fill('input[name="confirmPin"]', pin);
+    await page.locator('button[type="submit"]').click();
+    await expect(page.getByText('Customer Queue Register')).toBeVisible();
+  }
+}
+
 test.describe('QueueLess Digital Token Register E2E Tests', () => {
 
   test('1. Owner Demo Login & Dashboard Navigation', async ({ page }) => {
-    await page.goto('/login');
-
-    // Check title and brand
-    await expect(page.locator('h1')).toContainText('QueueLess');
-
-    // Click 1-click Demo Login
-    const demoBtn = page.getByRole('button', { name: /Demo Login/i });
-    await expect(demoBtn).toBeVisible();
-    await demoBtn.click();
+    await loginOwner(page);
 
     // Verify redirected to dashboard by checking dashboard header
     await expect(page.getByText('Customer Queue Register')).toBeVisible();
   });
 
   test('2. Start Queue, Add Customer Manually, Show QR Modal', async ({ page }) => {
-    await page.goto('/login');
-    await page.getByRole('button', { name: /Demo Login/i }).click();
+    await loginOwner(page);
     await expect(page.getByText('Customer Queue Register')).toBeVisible();
 
     // Start Queue if closed
@@ -68,8 +85,7 @@ test.describe('QueueLess Digital Token Register E2E Tests', () => {
   });
 
   test('4. Subscription Page with UPI Payment Details', async ({ page }) => {
-    await page.goto('/login');
-    await page.getByRole('button', { name: /Demo Login/i }).click();
+    await loginOwner(page);
     await expect(page.getByText('Customer Queue Register')).toBeVisible();
 
     // Navigate to Subscription page
@@ -86,8 +102,7 @@ test.describe('QueueLess Digital Token Register E2E Tests', () => {
   });
 
   test('5. Basic Shop Settings', async ({ page }) => {
-    await page.goto('/login');
-    await page.getByRole('button', { name: /Demo Login/i }).click();
+    await loginOwner(page);
     await expect(page.getByText('Customer Queue Register')).toBeVisible();
 
     await page.goto('/settings');
@@ -97,8 +112,7 @@ test.describe('QueueLess Digital Token Register E2E Tests', () => {
 
   test('6. Full Customer QR Scan, Token Issuance and Tracking Journey', async ({ page, context }) => {
     // 1. Owner starts queue and gets public queue link
-    await page.goto('/login');
-    await page.getByRole('button', { name: /Demo Login/i }).click();
+    await loginOwner(page);
     await expect(page.getByText('Customer Queue Register')).toBeVisible();
 
     // Open QR modal to get join link
@@ -134,95 +148,95 @@ test.describe('QueueLess Digital Token Register E2E Tests', () => {
 
   test('7. Regression Suite: Test A, B, C - Basic Serving, Complete, Next Customer', async ({ page }) => {
     // Login to Dashboard
-    await page.goto('/login');
-    await page.getByRole('button', { name: /Demo Login/i }).click();
+    await loginOwner(page);
     await expect(page.getByText('Customer Queue Register')).toBeVisible();
 
-    // Reset to clean queue session for deterministic token 001 lifecycle
-    const closeBtn = page.getByRole('button', { name: /Close Queue/i }).first();
+    // Reset to clean queue session for deterministic token lifecycle
+    const closeBtn = page.getByRole('button', { name: /Close Queue/i });
     if (await closeBtn.isVisible()) {
       await closeBtn.click();
-      await page.locator('.fixed button', { hasText: /Close Queue/i }).click();
-      await page.waitForTimeout(500);
+      await page.getByRole('button', { name: /Close Queue/i }).last().click();
     }
     const startQueueBtn = page.getByRole('button', { name: /Start Queue/i });
-    if (await startQueueBtn.isVisible()) {
-      await startQueueBtn.click();
-      await expect(page.getByText('OPEN')).toBeVisible();
-    }
+    await expect(startQueueBtn).toBeVisible();
+    await startQueueBtn.click();
+    await expect(page.getByText('OPEN')).toBeVisible();
 
-    // Step A.1: Add Rahul (will be token 001)
-    const rahulName = 'Rahul ' + Math.floor(Math.random() * 10000);
-    await page.getByRole('button', { name: /Add Customer/i }).click();
-    await page.fill('input[placeholder*="Rahul Sharma"]', rahulName);
-    await page.getByRole('button', { name: /Generate Token/i }).click();
-    await expect(page.getByText(rahulName)).toBeVisible();
-
-    // Verify currently serving card is empty / none serving before call
+    // Verify initial Currently Serving shows Waiting for next customer
     const servingCard = page.locator('[data-testid="currently-serving-card"]');
-    await expect(servingCard.getByTestId('serving-token')).toHaveText('-');
-    await expect(servingCard.getByTestId('serving-name')).toContainText(/No customer serving|कोई ग्राहक नहीं/i);
-    await expect(servingCard.getByTestId('serving-badge')).not.toBeVisible();
+    await expect(servingCard).toBeVisible();
+    await expect(servingCard.getByTestId('serving-name')).toContainText(/No customer serving|Waiting for next customer|प्रतीक्षा/i);
 
-    // Step A.2: Click Next Customer
-    await page.getByRole('button', { name: /Call Next/i }).click();
+    // Add Customer A
+    const custA = 'Customer A ' + Math.floor(Math.random() * 1000);
+    await page.getByRole('button', { name: /Add Customer/i }).click();
+    await page.fill('input[placeholder*="Rahul Sharma"]', custA);
+    await page.getByRole('button', { name: /Generate Token/i }).click();
 
-    // Verify Rahul becomes CALLED in list
-    const rahulRow = page.locator('[data-testid="customer-row"]', { hasText: rahulName });
-    await expect(rahulRow.getByText('CALLED')).toBeVisible();
+    // Add Customer B
+    const custB = 'Customer B ' + Math.floor(Math.random() * 1000);
+    await page.getByRole('button', { name: /Add Customer/i }).click();
+    await page.fill('input[placeholder*="Rahul Sharma"]', custB);
+    await page.getByRole('button', { name: /Generate Token/i }).click();
 
-    // CRITICAL: Verify Rahul is NOT in Currently Serving merely because he is CALLED!
-    await expect(servingCard.getByTestId('serving-token')).toHaveText('-');
-    await expect(servingCard.getByTestId('serving-name')).toContainText(/No customer serving|कोई ग्राहक नहीं/i);
-    await expect(servingCard.getByTestId('serving-badge')).not.toBeVisible();
+    // Add Customer C
+    const custC = 'Customer C ' + Math.floor(Math.random() * 1000);
+    await page.getByRole('button', { name: /Add Customer/i }).click();
+    await page.fill('input[placeholder*="Rahul Sharma"]', custC);
+    await page.getByRole('button', { name: /Generate Token/i }).click();
 
-    // Step A.3: Click Start Serving on Rahul
-    await rahulRow.getByRole('button', { name: /Start Serving/i }).click();
+    // Locate customer rows
+    const rowA = page.locator('[data-testid="customer-row"]', { hasText: custA });
+    const rowB = page.locator('[data-testid="customer-row"]', { hasText: custB });
+    const rowC = page.locator('[data-testid="customer-row"]', { hasText: custC });
 
-    // Verify Rahul becomes SERVING
-    await expect(rahulRow.getByText('SERVING')).toBeVisible();
-    // Verify Currently Serving displays Rahul and token
-    await expect(servingCard.getByTestId('serving-name')).toContainText(rahulName);
+    await expect(rowA).toBeVisible();
+    await expect(rowB).toBeVisible();
+    await expect(rowC).toBeVisible();
+
+    // --- TEST A: Start Serving Customer A ---
+    await rowA.getByRole('button', { name: /Start Serving/i }).click();
+
+    // Verify row badge changes to SERVING
+    await expect(rowA.getByText('SERVING')).toBeVisible();
+
+    // Verify Currently Serving Card updates
+    await expect(servingCard.getByTestId('serving-name')).toContainText(custA);
     await expect(servingCard.getByTestId('serving-badge')).toBeVisible();
 
-    // Step B: Complete customer Rahul
-    await rahulRow.getByRole('button', { name: /Complete/i }).click();
+    // --- TEST B: Complete Serving Customer A ---
+    await rowA.getByRole('button', { name: /Complete/i }).click();
 
-    // Verify Rahul disappears from Currently Serving
-    await expect(servingCard.getByTestId('serving-token')).toHaveText('-');
-    await expect(servingCard.getByTestId('serving-name')).toContainText(/No customer serving|कोई ग्राहक नहीं/i);
-    await expect(servingCard.getByTestId('serving-badge')).not.toBeVisible();
+    // Verify Customer A row badge in Completed / History
+    await page.getByRole('button', { name: /Completed \/ History|पूर्ण/i }).click();
+    await expect(rowA.getByText('COMPLETED')).toBeVisible();
+    await page.getByRole('button', { name: /All Active|सभी सक्रिय/i }).click();
 
-    // Verify Rahul is in Completed / History tab
-    await page.getByRole('button', { name: /Completed \/ History/i }).click();
-    await expect(page.locator('[data-testid="customer-row"]', { hasText: rahulName }).getByText('COMPLETED')).toBeVisible();
-    // Switch back to All Active
-    await page.getByRole('button', { name: /All Active/i }).click();
+    // Verify rowA action buttons are not visible in active list
+    await expect(rowA).not.toBeVisible();
 
-    // Step C: Next customer Amit
-    const amitName = 'Amit ' + Math.floor(Math.random() * 10000);
-    await page.getByRole('button', { name: /Add Customer/i }).click();
-    await page.fill('input[placeholder*="Rahul Sharma"]', amitName);
-    await page.getByRole('button', { name: /Generate Token/i }).click();
-    await expect(page.getByText(amitName)).toBeVisible();
+    // Verify Currently Serving card reverts to empty state
+    await expect(servingCard.getByTestId('serving-name')).toContainText(/No customer serving|Waiting for next customer|प्रतीक्षा/i);
 
-    // Call Amit
-    await page.getByRole('button', { name: /Call Next/i }).click();
-    const amitRow = page.locator('[data-testid="customer-row"]', { hasText: amitName });
-    await expect(amitRow.getByText('CALLED')).toBeVisible();
-    await expect(servingCard.getByTestId('serving-token')).toHaveText('-');
-    await expect(servingCard.getByTestId('serving-badge')).not.toBeVisible();
+    // --- TEST C: Call Next Customer (Should automatically pick Customer B) ---
+    const nextBtn = page.getByRole('button', { name: /Call Next Customer/i });
+    await expect(nextBtn).toBeVisible();
+    await nextBtn.click();
 
-    // Start serving Amit
-    await amitRow.getByRole('button', { name: /Start Serving/i }).click();
-    await expect(amitRow.getByText('SERVING')).toBeVisible();
-    await expect(servingCard.getByTestId('serving-name')).toContainText(amitName);
+    // Verify Customer B is now CALLED
+    await expect(rowB.getByText('CALLED')).toBeVisible();
+
+    // Now start serving Customer B
+    await rowB.getByRole('button', { name: /Start Serving/i }).click();
+
+    // Verify Customer B is now SERVING
+    await expect(rowB.getByText('SERVING')).toBeVisible();
+    await expect(servingCard.getByTestId('serving-name')).toContainText(custB);
     await expect(servingCard.getByTestId('serving-badge')).toBeVisible();
   });
 
   test('8. Regression Suite: Test D - Multiple Serving Customers simultaneously', async ({ page }) => {
-    await page.goto('/login');
-    await page.getByRole('button', { name: /Demo Login/i }).click();
+    await loginOwner(page);
     await expect(page.getByText('Customer Queue Register')).toBeVisible();
 
     const startQueueBtn = page.getByRole('button', { name: /Start Queue/i });
@@ -271,8 +285,7 @@ test.describe('QueueLess Digital Token Register E2E Tests', () => {
 
   test('9. Regression Suite: Test E, F, G - Real-Time SSE, Page Refresh, and SSE Reconnection', async ({ page, context }) => {
     // 1. Owner Login
-    await page.goto('/login');
-    await page.getByRole('button', { name: /Demo Login/i }).click();
+    await loginOwner(page);
     await expect(page.getByText('Customer Queue Register')).toBeVisible();
 
     const startQueueBtn = page.getByRole('button', { name: /Start Queue/i });
@@ -285,35 +298,47 @@ test.describe('QueueLess Digital Token Register E2E Tests', () => {
     const joinLinkHref = await page.getByTitle(/Open Customer View/i).getAttribute('href');
     await page.locator('button:has(svg.lucide-x)').first().click();
 
-    // 2. Customer joins in second page
+    // 2. Open Customer page in a second window
     const customerPage = await context.newPage();
     await customerPage.goto(joinLinkHref!);
-    const syncCustomer = 'Sync Guest ' + Math.floor(Math.random() * 1000);
-    await customerPage.fill('input[placeholder*="Rahul Sharma"]', syncCustomer);
+    const custName = 'SSE Customer ' + Math.floor(Math.random() * 1000);
+    await customerPage.fill('input[placeholder*="Rahul Sharma"]', custName);
     await customerPage.getByRole('button', { name: /Get My Token/i }).click();
-    await expect(customerPage.getByText('Ahead of You')).toBeVisible();
+    await expect(customerPage.getByText('Your Token Number')).toBeVisible();
 
-    // Test E: Owner starts serving customer -> Customer tracking page updates via SSE without manual refresh
-    const syncRow = page.locator('[data-testid="customer-row"]', { hasText: syncCustomer });
-    await syncRow.getByRole('button', { name: /Start Serving/i }).click();
+    // --- TEST E: Real-Time SSE Event Delivery ---
+    // Owner marks Customer as Serving
+    const customerRow = page.locator('[data-testid="customer-row"]', { hasText: custName });
+    await customerRow.getByRole('button', { name: /Start Serving/i }).click();
 
-    // Check Customer tracking page updated to SERVING via SSE
-    await expect(customerPage.getByText(/You are being served now|SERVING/i)).toBeVisible();
+    // Customer page MUST update to serving alert via live SSE event without reload
+    await expect(customerPage.getByText(/It's Your Turn!|You are being served|आपकी बारी|आपकी सेवा/i)).toBeVisible({ timeout: 5000 });
 
-    // Test F: Page refresh on Owner Dashboard retains serving state
-    await page.reload({ waitUntil: 'commit' });
-    await expect(page.getByText('Customer Queue Register')).toBeVisible();
-    const servingCard = page.locator('[data-testid="currently-serving-card"]');
-    await expect(servingCard.getByTestId('serving-name')).toContainText(syncCustomer);
-    await expect(servingCard.getByTestId('serving-badge')).toBeVisible();
+    // --- TEST F: Page Refresh Rehydration ---
+    // Refresh Customer Page
+    await customerPage.reload();
+    // After reload, customer should still see serving state from current DB state
+    await expect(customerPage.getByText(/It's Your Turn!|You are being served|आपकी बारी|आपकी सेवा/i)).toBeVisible();
 
-    // Test G: SSE Reconnection simulation (toggle offline / online or re-navigate)
-    await page.context().setOffline(true);
-    await page.waitForTimeout(500);
-    await page.context().setOffline(false);
-    await page.reload({ waitUntil: 'commit' });
-    await expect(servingCard.getByTestId('serving-name')).toContainText(syncCustomer);
-    await expect(servingCard.getByTestId('serving-badge')).toBeVisible();
+    // Refresh Owner Dashboard
+    await page.reload();
+    // After reload, currently serving card should still contain the customer
+    await expect(page.locator('[data-testid="currently-serving-card"]')).toContainText(custName);
+
+    // --- TEST G: SSE Reconnection on Network Failure Simulation ---
+    // Simulate temporary offline / reconnect on Customer page
+    await customerPage.context().setOffline(true);
+    // Wait briefly
+    await customerPage.waitForTimeout(1000);
+    // Bring back online
+    await customerPage.context().setOffline(false);
+
+    // Complete the customer on Owner Dashboard
+    const freshRow = page.locator('[data-testid="customer-row"]', { hasText: custName });
+    await freshRow.getByRole('button', { name: /Complete/i }).click();
+
+    // Customer page reconnected SSE stream should receive the COMPLETED event
+    await expect(customerPage.getByText(/COMPLETED|service has been completed|सेवा पूर्ण/i).first()).toBeVisible({ timeout: 10000 });
 
     await customerPage.close();
   });

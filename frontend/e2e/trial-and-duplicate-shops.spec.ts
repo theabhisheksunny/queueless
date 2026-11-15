@@ -1,5 +1,4 @@
 import { test, expect } from '@playwright/test';
-import { fillDispatchedOtp } from './test-otp-helper';
 
 test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests', () => {
 
@@ -23,10 +22,6 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page1.selectOption('select', 'Barber Shop');
     await page1.fill('input[placeholder*="Ramesh Sharma"]', 'Aman Verma');
     await page1.fill('input[placeholder*="9876543210"]', phone1);
-    await page1.getByRole('button', { name: /Send OTP/i }).click();
-    await expect(page1.getByRole('button', { name: /Resend in/i })).toBeVisible();
-    await fillDispatchedOtp(page1, phone1);
-
     await page1.fill('input[name="pin"]', '123456');
     await page1.fill('input[name="confirmPin"]', '123456');
     await page1.locator('button[type="submit"]').click();
@@ -62,10 +57,6 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page2.selectOption('select', 'Barber Shop');
     await page2.fill('input[placeholder*="Ramesh Sharma"]', 'Vikram Seth');
     await page2.fill('input[placeholder*="9876543210"]', phone2);
-    await page2.getByRole('button', { name: /Send OTP/i }).click();
-    await expect(page2.getByRole('button', { name: /Resend in/i })).toBeVisible();
-    await fillDispatchedOtp(page2, phone2);
-
     await page2.fill('input[name="pin"]', '123456');
     await page2.fill('input[name="confirmPin"]', '123456');
     await page2.locator('button[type="submit"]').click();
@@ -107,10 +98,6 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page.fill('input[placeholder*="Royal Hair Salon"]', 'First Trial Salon');
     await page.fill('input[placeholder*="Ramesh Sharma"]', 'Owner One');
     await page.fill('input[placeholder*="9876543210"]', phone);
-    await page.getByRole('button', { name: /Send OTP/i }).click();
-    await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
-    await fillDispatchedOtp(page, phone);
-
     await page.fill('input[name="pin"]', '123456');
     await page.fill('input[name="confirmPin"]', '123456');
     await page.locator('button[type="submit"]').click();
@@ -126,10 +113,6 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page.fill('input[placeholder*="Royal Hair Salon"]', 'Second Trial Attempt');
     await page.fill('input[placeholder*="Ramesh Sharma"]', 'Abuse Attempter');
     await page.fill('input[placeholder*="9876543210"]', phone);
-    await page.getByRole('button', { name: /Send OTP/i }).click();
-    await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
-    await fillDispatchedOtp(page, phone);
-
     await page.fill('input[name="pin"]', '123456');
     await page.fill('input[name="confirmPin"]', '123456');
     await page.locator('button[type="submit"]').click();
@@ -149,10 +132,6 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page.fill('input[placeholder*="Royal Hair Salon"]', 'Delete Me Clinic');
     await page.fill('input[placeholder*="Ramesh Sharma"]', 'Temporary Owner');
     await page.fill('input[placeholder*="9876543210"]', phone);
-    await page.getByRole('button', { name: /Send OTP/i }).click();
-    await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
-    await fillDispatchedOtp(page, phone);
-
     await page.fill('input[name="pin"]', '123456');
     await page.fill('input[name="confirmPin"]', '123456');
     await page.locator('button[type="submit"]').click();
@@ -173,10 +152,6 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page.fill('input[placeholder*="Royal Hair Salon"]', 'Re-registered Clinic');
     await page.fill('input[placeholder*="Ramesh Sharma"]', 'Same Owner Again');
     await page.fill('input[placeholder*="9876543210"]', phone);
-    await page.getByRole('button', { name: /Send OTP/i }).click();
-    await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
-    await fillDispatchedOtp(page, phone);
-
     await page.fill('input[name="pin"]', '123456');
     await page.fill('input[name="confirmPin"]', '123456');
     await page.locator('button[type="submit"]').click();
@@ -185,7 +160,7 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await expect(page.getByText(/trial already consumed|already been claimed|not eligible/i)).toBeVisible();
   });
 
-  test('4. Password reset via verified OTP succeeds without granting fresh trial', async ({ page }) => {
+  test('4. PIN reset succeeds without granting fresh trial', async ({ page }) => {
     const timestamp = Date.now();
     const phone = '94' + (timestamp % 100000000).toString().padStart(8, '0');
     const email = `pwreset_${timestamp}@queueless.com`;
@@ -196,10 +171,6 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page.fill('input[placeholder*="Royal Hair Salon"]', 'Password Reset Shop');
     await page.fill('input[placeholder*="Ramesh Sharma"]', 'Reset Owner');
     await page.fill('input[placeholder*="9876543210"]', phone);
-    await page.getByRole('button', { name: /Send OTP/i }).click();
-    await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
-    await fillDispatchedOtp(page, phone);
-
     await page.fill('input[name="pin"]', '123456');
     await page.fill('input[name="confirmPin"]', '123456');
     await page.locator('button[type="submit"]').click();
@@ -211,13 +182,9 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
 
     // 3. Click Forgot PIN
     await page.getByRole('button', { name: /Forgot PIN\?|पिन भूल गए\?/i }).click();
-    await expect(page.getByRole('heading', { name: /Reset.*PIN|पिन रीसेट/i })).toBeVisible();
+    await expect(page.getByText(/\+91 98765 43210/i).first()).toBeVisible();
 
     await page.fill('input[placeholder*="9876543210"]', phone);
-    await page.getByRole('button', { name: /Send OTP/i }).click();
-    await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
-    await fillDispatchedOtp(page, phone);
-
     await page.fill('input[name="pin"]', '654321');
     await page.fill('input[name="confirmPin"]', '654321');
     await page.locator('button[type="submit"]').click();

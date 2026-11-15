@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -13,12 +13,11 @@ import {
   ArrowRight, 
   Sparkles, 
   Globe, 
-  KeyRound, 
-  CheckCircle2, 
   Eye, 
   EyeOff, 
-  ShieldAlert, 
-  HelpCircle
+  HelpCircle,
+  AlertCircle,
+  CheckCircle2
 } from 'lucide-react';
 
 const CATEGORIES = [
@@ -54,41 +53,6 @@ export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  // OTP states
-  const [otp, setOtp] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpCooldown, setOtpCooldown] = useState(0);
-  const [isSendingOtp, setIsSendingOtp] = useState(false);
-
-  // Cooldown countdown timer
-  useEffect(() => {
-    if (otpCooldown <= 0) return;
-    const timer = setInterval(() => {
-      setOtpCooldown((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [otpCooldown]);
-
-  const handleSendOtp = async () => {
-    if (!phone.trim()) {
-      setError('Please enter a valid 10-digit Indian mobile number to receive OTP.');
-      return;
-    }
-    setError(null);
-    setIsSendingOtp(true);
-    try {
-      const res = await api.sendOtp(phone.trim());
-      setOtpSent(true);
-      setOtpCooldown(res.cooldownSeconds || 60);
-      setSuccessMsg(`OTP sent to ${phone.trim()}`);
-    } catch (err: any) {
-      setError(err.message || 'Failed to send OTP.');
-      setOtpSent(false);
-    } finally {
-      setIsSendingOtp(false);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -119,6 +83,11 @@ export const LoginPage: React.FC = () => {
         const effectivePin = pin.trim() || password.trim();
         const effectiveConfirmPin = confirmPin.trim() || effectivePin;
 
+        if (!phone.trim()) {
+          setError('Mobile number is required.');
+          return;
+        }
+
         if (effectivePin.length !== 6 || !/^\d{6}$/.test(effectivePin)) {
           setError('PIN must be exactly 6 numeric digits (0-9).');
           return;
@@ -129,15 +98,6 @@ export const LoginPage: React.FC = () => {
           return;
         }
 
-        if (!otp.trim()) {
-          if (!otpSent) {
-            await handleSendOtp();
-            return;
-          }
-          setError('Please enter the 6-digit OTP sent to your verified mobile number.');
-          return;
-        }
-
         await register({
           fullName: fullName.trim(),
           email: email.trim() || undefined,
@@ -145,7 +105,6 @@ export const LoginPage: React.FC = () => {
           pin: effectivePin,
           confirmPin: effectiveConfirmPin,
           password: effectivePin,
-          otp: otp.trim(),
           shopName: shopName.trim(),
           category,
           avgServiceDurationMinutes,
@@ -153,8 +112,8 @@ export const LoginPage: React.FC = () => {
         });
         navigate('/');
       } else if (mode === 'recover') {
-        if (!phone.trim() || !otp.trim() || !pin.trim()) {
-          setError('Mobile number, OTP, and new 6-digit PIN are all required.');
+        if (!phone.trim() || !pin.trim()) {
+          setError('Mobile number and new 6-digit PIN are required.');
           return;
         }
 
@@ -170,7 +129,6 @@ export const LoginPage: React.FC = () => {
 
         await api.resetPin({
           phone: phone.trim(),
-          otp: otp.trim(),
           newPin: pin.trim(),
           confirmPin: confirmPin.trim() || pin.trim(),
           deviceFingerprint: navigator.userAgent,
@@ -179,7 +137,6 @@ export const LoginPage: React.FC = () => {
         setSuccessMsg(t('pinResetSuccess'));
         setPin('');
         setConfirmPin('');
-        setOtp('');
         setMode('login');
       }
     } catch (err: any) {
@@ -215,91 +172,86 @@ export const LoginPage: React.FC = () => {
         <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-brand-700 to-brand-500 mx-auto flex items-center justify-center text-white shadow-xl shadow-brand-500/25 mb-3 animate-bounce-short">
           <QrCode className="w-8 h-8" />
         </div>
-        <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
+
+        <h1 className="text-3xl font-black tracking-tight text-slate-900 mb-1">
           QueueLess
         </h1>
-        <p className="text-xs font-semibold text-slate-500 mt-1 max-w-xs mx-auto">
+        <p className="text-sm font-semibold text-brand-600 mb-1">
           {t('tagline')}
+        </p>
+        <p className="text-xs text-slate-500 max-w-xs mx-auto">
+          {mode === 'login'
+            ? t('pinLoginSubtitle')
+            : mode === 'register'
+            ? t('pinRegisterSubtitle')
+            : t('lostSimRecoveryMsg')}
         </p>
       </div>
 
       <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-6 sm:px-10 rounded-3xl shadow-xl shadow-slate-200/60 border border-slate-100">
-          {/* Mode Switch Tabs */}
-          {mode !== 'recover' ? (
-            <div className="flex p-1 mb-6 rounded-2xl bg-slate-100/90 text-sm font-semibold">
+        <div className="bg-white py-8 px-6 shadow-xl shadow-slate-200/50 rounded-3xl sm:px-10 border border-slate-200/80 backdrop-blur-xl">
+          
+          {/* Tabs: Sign In / Create Account / Reset PIN */}
+          <div className="flex p-1 bg-slate-100 rounded-2xl mb-6">
+            <button
+              type="button"
+              onClick={() => {
+                setMode('login');
+                setError(null);
+                setSuccessMsg(null);
+              }}
+              className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-all ${
+                mode === 'login'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              {t('signIn')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('register');
+                setError(null);
+                setSuccessMsg(null);
+              }}
+              className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-all ${
+                mode === 'register'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              {t('signUp')}
+            </button>
+            {mode === 'recover' && (
               <button
                 type="button"
-                onClick={() => {
-                  setMode('login');
-                  setError(null);
-                  setSuccessMsg(null);
-                }}
-                className={`flex-1 py-2.5 rounded-xl transition-all ${
-                  mode === 'login'
-                    ? 'bg-white text-slate-900 shadow-sm font-bold'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
+                className="flex-1 py-2.5 text-xs font-bold rounded-xl bg-white text-brand-700 shadow-sm transition-all"
               >
-                {t('signIn')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('register');
-                  setError(null);
-                  setSuccessMsg(null);
-                }}
-                className={`flex-1 py-2.5 rounded-xl transition-all ${
-                  mode === 'register'
-                    ? 'bg-white text-slate-900 shadow-sm font-bold'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                {t('signUp')}
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between mb-6 pb-2 border-b border-slate-100">
-              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <KeyRound className="w-5 h-5 text-brand-600" />
                 {t('resetPin')}
-              </h2>
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('login');
-                  setError(null);
-                }}
-                className="text-xs text-brand-600 font-bold hover:underline"
-              >
-                Back to Login
               </button>
-            </div>
-          )}
-
-          {/* Subtitle helper */}
-          <div className="mb-5 text-xs text-slate-500 font-medium">
-            {mode === 'login' && t('pinLoginSubtitle')}
-            {mode === 'register' && t('pinRegisterSubtitle')}
+            )}
           </div>
 
-          {/* Alerts */}
+          {/* Error Alert */}
           {error && (
-            <div className="mb-4 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm font-medium flex items-start gap-2">
-              <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+            <div className="mb-5 p-3.5 rounded-2xl bg-rose-50 border border-rose-200/80 text-rose-700 text-xs font-semibold flex items-center gap-2 animate-shake">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
               <span>{error}</span>
             </div>
           )}
+
+          {/* Success Alert */}
           {successMsg && (
-            <div className="mb-4 p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-medium flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <div className="mb-5 p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-xs font-semibold flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
               <span>{successMsg}</span>
             </div>
           )}
 
-          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
+            
+            {/* Registration specific fields */}
             {mode === 'register' && (
               <>
                 {/* Shop Name */}
@@ -314,13 +266,13 @@ export const LoginPage: React.FC = () => {
                       required
                       value={shopName}
                       onChange={(e) => setShopName(e.target.value)}
-                      placeholder="e.g. Royal Hair Salon"
+                      placeholder="e.g. Royal Hair Salon & Spa"
                       className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
                     />
                   </div>
                 </div>
 
-                {/* Category */}
+                {/* Business Category */}
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
                     {t('category')} <span className="text-rose-500">*</span>
@@ -358,62 +310,29 @@ export const LoginPage: React.FC = () => {
               </>
             )}
 
-            {/* Mobile Phone Number (Used in Login, Register, and Recover) */}
+            {/* Mobile Phone Number (Directly followed by PIN) */}
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
                 {t('phone')} <span className="text-rose-500">*</span>
               </label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1 text-slate-500 font-bold text-xs">
-                    <Phone className="w-4 h-4 text-slate-400" />
-                    <span>+91</span>
-                  </div>
-                  <input
-                    type="tel"
-                    required
-                    maxLength={10}
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
-                    placeholder="e.g. 9876543210"
-                    className="w-full pl-16 pr-3 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-semibold transition-all"
-                  />
+              <div className="relative">
+                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1 text-slate-500 font-bold text-xs">
+                  <Phone className="w-4 h-4 text-slate-400" />
+                  <span>+91</span>
                 </div>
-                {mode !== 'login' && (
-                  <button
-                    type="button"
-                    onClick={handleSendOtp}
-                    disabled={isSendingOtp || otpCooldown > 0 || !phone.trim()}
-                    className="px-4 py-3 rounded-2xl bg-brand-50 hover:bg-brand-100/80 border border-brand-200/80 text-brand-700 font-bold text-xs shrink-0 transition-colors disabled:opacity-50"
-                  >
-                    {otpCooldown > 0 ? `${t('resendIn')} ${otpCooldown}s` : isSendingOtp ? 'Sending...' : t('sendOtp')}
-                  </button>
-                )}
+                <input
+                  type="tel"
+                  required
+                  maxLength={10}
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
+                  placeholder="e.g. 9876543210"
+                  className="w-full pl-16 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-semibold transition-all"
+                />
               </div>
             </div>
 
-            {/* OTP Input Field (Register & Recover) */}
-            {mode !== 'login' && (
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                  {t('enterOtp')} <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <KeyRound className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    maxLength={6}
-                    required
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                    placeholder="Enter 6-digit OTP"
-                    className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-mono font-bold tracking-widest transition-all"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* 6-Digit PIN (Login, Register, Recover) */}
+            {/* 6-Digit Secret PIN */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
@@ -448,7 +367,7 @@ export const LoginPage: React.FC = () => {
                     const val = e.target.value.replace(/\D/g, '');
                     setPin(val);
                     setPassword(val);
-                    if (!confirmPinTouched) {
+                    if (!confirmPinTouched && mode === 'register') {
                       setConfirmPin(val);
                     }
                   }}
@@ -513,7 +432,7 @@ export const LoginPage: React.FC = () => {
               </div>
             )}
 
-            {/* Fallback hidden email input to support existing browser autocomplete or test helpers */}
+            {/* Fallback hidden email input to support existing browser autocomplete */}
             {mode === 'register' && (
               <div className="hidden">
                 <input
@@ -544,21 +463,31 @@ export const LoginPage: React.FC = () => {
             </button>
           </form>
 
-          {/* Lost SIM Card / Manual Recovery Notice (in Recover Mode) */}
+          {/* Account Recovery Guidance (in Recover Mode) */}
           {mode === 'recover' && (
             <div className="mt-6 p-4 rounded-2xl bg-amber-50/80 border border-amber-200/80 text-amber-900 text-xs">
               <div className="flex items-start gap-2">
                 <HelpCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <div>
                   <div className="font-bold text-amber-950 mb-0.5">{t('lostSimRecoveryTitle')}</div>
-                  <div className="text-amber-800 leading-relaxed">{t('lostSimRecoveryMsg')}</div>
+                  <div className="text-amber-800 leading-relaxed mb-3">{t('lostSimRecoveryMsg')}</div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('login');
+                      setError(null);
+                    }}
+                    className="font-bold text-amber-900 hover:underline inline-flex items-center gap-1"
+                  >
+                    <span>← {t('signIn')}</span>
+                  </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Quick Demo Login Button */}
-          {mode === 'login' && (
+          {/* Quick Demo Login Button (isolated strictly to development builds) */}
+          {import.meta.env.DEV && mode === 'login' && (
             <div className="mt-6 pt-6 border-t border-slate-100 text-center">
               <button
                 type="button"

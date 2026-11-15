@@ -21,6 +21,8 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Profile;
+import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -28,6 +30,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 
 @SpringBootApplication
 @EnableAsync
@@ -39,16 +42,13 @@ public class QueueLessApplication {
         SpringApplication.run(QueueLessApplication.class, args);
     }
 
+    /**
+     * Seeds essential application pricing and UPI settings if missing.
+     * Safe across all environments (production and development).
+     */
     @Bean
-    public CommandLineRunner initData(ApplicationSettingRepository settingRepo,
-                                      UserRepository userRepo,
-                                      ShopRepository shopRepo,
-                                      SubscriptionRepository subscriptionRepo,
-                                      TrialEligibilityLedgerRepository trialLedgerRepo,
-                                      PasswordEncoder passwordEncoder,
-                                      PhoneNormalizationService phoneNormalizationService) {
+    public CommandLineRunner initApplicationSettings(ApplicationSettingRepository settingRepo) {
         return args -> {
-            // Seed initial UPI and Pricing settings if missing
             if (settingRepo.findBySettingKey(SubscriptionService.KEY_UPI_ID).isEmpty()) {
                 settingRepo.save(new ApplicationSetting(
                         SubscriptionService.KEY_UPI_ID,
@@ -77,8 +77,33 @@ public class QueueLessApplication {
                         "Yearly plan price in INR"
                 ));
             }
+        };
+    }
 
-            // Seed demo shop owner directly for testing and evaluation without bypass OTP
+    /**
+     * Seeds demo shop owner STRICTLY in explicit development or test profiles ('dev', 'test', 'local').
+     * In production (or when no explicit dev/test profile is declared), this bean is NOT activated,
+     * ensuring production database initialization never creates demo credentials or accounts.
+     */
+    @Bean
+    @Profile({"dev", "test", "local"})
+    public CommandLineRunner seedDemoData(UserRepository userRepo,
+                                          ShopRepository shopRepo,
+                                          SubscriptionRepository subscriptionRepo,
+                                          TrialEligibilityLedgerRepository trialLedgerRepo,
+                                          PasswordEncoder passwordEncoder,
+                                          PhoneNormalizationService phoneNormalizationService,
+                                          Environment env) {
+        return args -> {
+            // Defensive secondary guard against accidental multi-profile activation with prod
+            String[] activeProfiles = env.getActiveProfiles();
+            for (String profile : activeProfiles) {
+                if ("prod".equalsIgnoreCase(profile) || "production".equalsIgnoreCase(profile)) {
+                    log.info("Production profile active; demo account seeding permanently bypassed.");
+                    return;
+                }
+            }
+
             if (!userRepo.existsByEmail("owner@queueless.com")) {
                 try {
                     String rawPhone = "9876543210";
@@ -134,7 +159,7 @@ public class QueueLessApplication {
                     ledger.setRegistrationStatus("ACTIVE");
                     trialLedgerRepo.save(ledger);
 
-                    log.info("Demo shop owner seeded directly: owner@queueless.com / password123");
+                    log.info("Explicit dev/test environment: Demo shop owner seeded (owner@queueless.com)");
                 } catch (Exception e) {
                     log.warn("Could not seed demo shop owner (non-fatal): {}", e.getMessage());
                 }

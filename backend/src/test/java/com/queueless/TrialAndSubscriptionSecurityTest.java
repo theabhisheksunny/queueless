@@ -55,9 +55,6 @@ class TrialAndSubscriptionSecurityTest {
     private SubscriptionService subscriptionService;
 
     @Autowired
-    private OtpVerificationService otpVerificationService;
-
-    @Autowired
     private TrialEligibilityLedgerRepository ledgerRepository;
 
     @Autowired
@@ -75,7 +72,6 @@ class TrialAndSubscriptionSecurityTest {
         entitlementService.setClock(baseClock);
         subscriptionService.setClock(baseClock);
         queueService.setClock(baseClock);
-        otpVerificationService.setClock(baseClock);
     }
 
     @Test
@@ -167,25 +163,27 @@ class TrialAndSubscriptionSecurityTest {
         var authRes = authService.register(firstReq);
         assertThat(authRes.getToken()).isNotNull();
 
-        // 3. Same verified mobile attempts second registration with different email -> REJECTED
+        // 3. Same mobile attempts second registration with different email -> REJECTED
         RegisterRequest secondReq = new RegisterRequest();
         secondReq.setFullName("Another Name");
         secondReq.setEmail("second_" + System.currentTimeMillis() + "@test.com");
         secondReq.setPassword("password123");
+        secondReq.setPin("123456");
+        secondReq.setConfirmPin("123456");
         secondReq.setPhone("+91 98765 40001"); // variation in formatting
-        secondReq.setOtp("123456");
         secondReq.setShopName("Another Shop");
 
         assertThrows(IllegalArgumentException.class, () -> authService.register(secondReq),
                 "Should reject registration because phone is already associated with an account");
 
-        // 4 & 8. Device / Browser change with same verified phone -> REJECTED
+        // 4 & 8. Device / Browser change with same phone -> REJECTED
         RegisterRequest deviceChangeReq = new RegisterRequest();
         deviceChangeReq.setFullName("Mobile User");
         deviceChangeReq.setEmail("device_" + System.currentTimeMillis() + "@test.com");
         deviceChangeReq.setPassword("password123");
+        deviceChangeReq.setPin("123456");
+        deviceChangeReq.setConfirmPin("123456");
         deviceChangeReq.setPhone("09876540001"); // variation with trunk 0
-        deviceChangeReq.setOtp("123456");
         deviceChangeReq.setShopName("New Shop Name");
         deviceChangeReq.setDeviceFingerprint("device-fingerprint-iphone-safari");
 
@@ -197,8 +195,9 @@ class TrialAndSubscriptionSecurityTest {
         renameTrialReq.setFullName("Original Owner");
         renameTrialReq.setEmail("rename_" + System.currentTimeMillis() + "@test.com");
         renameTrialReq.setPassword("password123");
+        renameTrialReq.setPin("123456");
+        renameTrialReq.setConfirmPin("123456");
         renameTrialReq.setPhone("9876540001");
-        renameTrialReq.setOtp("123456");
         renameTrialReq.setShopName("Brand New Rename Shop");
 
         assertThrows(IllegalArgumentException.class, () -> authService.register(renameTrialReq));
@@ -235,8 +234,9 @@ class TrialAndSubscriptionSecurityTest {
         reRegReq.setFullName("Re-registering Owner");
         reRegReq.setEmail("fresh_email_" + System.currentTimeMillis() + "@test.com");
         reRegReq.setPassword("pass1234");
+        reRegReq.setPin("123456");
+        reRegReq.setConfirmPin("123456");
         reRegReq.setPhone(testPhone);
-        reRegReq.setOtp("123456");
         reRegReq.setShopName("Re-opened Clinic");
 
         // Must be rejected by the persistent trial eligibility ledger
@@ -254,6 +254,8 @@ class TrialAndSubscriptionSecurityTest {
         req.setFullName("Recovery Owner");
         req.setEmail(email);
         req.setPassword("oldPassword123");
+        req.setPin("123456");
+        req.setConfirmPin("123456");
         req.setPhone(testPhone);
         testRegistrationHelper.prepareOtp(req);
         req.setShopName("Secure Clinic");
@@ -265,11 +267,9 @@ class TrialAndSubscriptionSecurityTest {
         authService.setClock(day3Clock);
         entitlementService.setClock(day3Clock);
         subscriptionService.setClock(day3Clock);
-        otpVerificationService.setClock(day3Clock);
 
-        // Perform password reset via dynamic OTP
-        String resetOtp = testRegistrationHelper.obtainOtp(testPhone);
-        PasswordResetRequest resetReq = new PasswordResetRequest(testPhone, resetOtp, "newPassword456");
+        // Perform password reset using current password/PIN
+        PasswordResetRequest resetReq = new PasswordResetRequest(testPhone, "123456", "newPassword456");
         mockMvc.perform(post("/api/auth/reset-password")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(resetReq)))
@@ -293,7 +293,6 @@ class TrialAndSubscriptionSecurityTest {
     @DisplayName("9. Concurrent registrations with same verified mobile — Only ONE trial can be consumed")
     void testConcurrentRegistrationsOnlyOneTrialConsumed() throws Exception {
         String concurrentPhone = "9876540009";
-        String sharedDynamicOtp = testRegistrationHelper.obtainOtp(concurrentPhone);
         int threads = 4;
         ExecutorService executor = Executors.newFixedThreadPool(threads);
         CountDownLatch startLatch = new CountDownLatch(1);
@@ -311,8 +310,9 @@ class TrialAndSubscriptionSecurityTest {
                     req.setFullName("Concurrent Owner " + idx);
                     req.setEmail("concurrent_" + idx + "_" + System.currentTimeMillis() + "@test.com");
                     req.setPassword("password123");
+                    req.setPin("123456");
+                    req.setConfirmPin("123456");
                     req.setPhone(concurrentPhone);
-                    req.setOtp(sharedDynamicOtp);
                     req.setShopName("Concurrent Shop " + idx);
 
                     authService.register(req);

@@ -1,5 +1,4 @@
 import { test, expect } from '@playwright/test';
-import { fillDispatchedOtp } from './test-otp-helper';
 
 test.describe('Completed Token 15-Minute Expiration Policy E2E', () => {
 
@@ -20,8 +19,6 @@ test.describe('Completed Token 15-Minute Expiration Policy E2E', () => {
     await ownerPage.fill('input[placeholder*="Ramesh Sharma"]', 'Vikram Malhotra');
     const uniquePhone = '98' + (uniqueId % 100000000).toString().padStart(8, '0');
     await ownerPage.fill('input[placeholder*="9876543210"]', uniquePhone);
-    await ownerPage.getByRole('button', { name: /Send OTP/i }).click();
-    await fillDispatchedOtp(ownerPage, uniquePhone);
     await ownerPage.fill('input[name="pin"]', '123456');
     await ownerPage.fill('input[name="confirmPin"]', '123456');
     await ownerPage.locator('button[type="submit"]').click();

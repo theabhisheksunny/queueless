@@ -8,8 +8,7 @@ public class PasswordResetRequest {
     @NotBlank(message = "Phone number is required")
     private String phone;
 
-    @NotBlank(message = "OTP is required")
-    private String otp;
+    private String currentPassword;
 
     @NotBlank(message = "New password is required")
     @Size(min = 6, message = "Password must be at least 6 characters")
@@ -17,9 +16,14 @@ public class PasswordResetRequest {
 
     public PasswordResetRequest() {}
 
-    public PasswordResetRequest(String phone, String otp, String newPassword) {
+    public PasswordResetRequest(String phone, String newPassword) {
         this.phone = phone;
-        this.otp = otp;
+        this.newPassword = newPassword;
+    }
+
+    public PasswordResetRequest(String phone, String currentPassword, String newPassword) {
+        this.phone = phone;
+        this.currentPassword = currentPassword;
         this.newPassword = newPassword;
     }
 
@@ -31,12 +35,12 @@ public class PasswordResetRequest {
         this.phone = phone;
     }
 
-    public String getOtp() {
-        return otp;
+    public String getCurrentPassword() {
+        return currentPassword;
     }
 
-    public void setOtp(String otp) {
-        this.otp = otp;
+    public void setCurrentPassword(String currentPassword) {
+        this.currentPassword = currentPassword;
     }
 
     public String getNewPassword() {

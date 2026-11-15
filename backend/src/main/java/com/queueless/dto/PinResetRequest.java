@@ -8,8 +8,7 @@ public class PinResetRequest {
     @NotBlank(message = "Mobile number is required")
     private String phone;
 
-    @NotBlank(message = "OTP is required")
-    private String otp;
+    private String currentPin;
 
     @NotBlank(message = "New 6-digit PIN is required")
     @Pattern(regexp = "^\\d{6}$", message = "PIN must be exactly 6 digits")
@@ -22,11 +21,25 @@ public class PinResetRequest {
 
     public PinResetRequest() {}
 
-    public PinResetRequest(String phone, String otp, String newPin, String confirmPin) {
+    public PinResetRequest(String phone, String newPin, String confirmPin) {
         this.phone = phone;
-        this.otp = otp;
         this.newPin = newPin;
         this.confirmPin = confirmPin;
+    }
+
+    public PinResetRequest(String phone, String currentPin, String newPin, String confirmPin) {
+        this.phone = phone;
+        this.currentPin = currentPin;
+        this.newPin = newPin;
+        this.confirmPin = confirmPin;
+    }
+
+    public PinResetRequest(String phone, String currentPin, String newPin, String confirmPin, String deviceFingerprint) {
+        this.phone = phone;
+        this.currentPin = currentPin;
+        this.newPin = newPin;
+        this.confirmPin = confirmPin;
+        this.deviceFingerprint = deviceFingerprint;
     }
 
     public String getPhone() {
@@ -37,12 +50,12 @@ public class PinResetRequest {
         this.phone = phone;
     }
 
-    public String getOtp() {
-        return otp;
+    public String getCurrentPin() {
+        return currentPin;
     }
 
-    public void setOtp(String otp) {
-        this.otp = otp;
+    public void setCurrentPin(String currentPin) {
+        this.currentPin = currentPin;
     }
 
     public String getNewPin() {

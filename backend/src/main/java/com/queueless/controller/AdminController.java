@@ -17,13 +17,16 @@ public class AdminController {
 
     private final SubscriptionService subscriptionService;
     private final CategoryChangeService categoryChangeService;
+    private final com.queueless.service.AuthService authService;
     private final String adminKey;
 
     public AdminController(SubscriptionService subscriptionService,
                            CategoryChangeService categoryChangeService,
+                           com.queueless.service.AuthService authService,
                            @Value("${app.admin.key:admin-secret-queueless-2026}") String adminKey) {
         this.subscriptionService = subscriptionService;
         this.categoryChangeService = categoryChangeService;
+        this.authService = authService;
         this.adminKey = adminKey;
     }
 
@@ -94,5 +97,16 @@ public class AdminController {
         verifyAdminAccess(key);
         categoryChangeService.adminRejectRequest(id, request, "admin");
         return ResponseEntity.ok(Map.of("message", "Category change request rejected."));
+    }
+
+    @PostMapping("/reset-owner-pin")
+    public ResponseEntity<Map<String, String>> adminResetPin(
+            @RequestHeader(value = "X-Admin-Key", required = false) String key,
+            @RequestBody Map<String, String> body) {
+        verifyAdminAccess(key);
+        String phone = body.get("phone");
+        String newPin = body.get("newPin");
+        authService.adminResetPin(phone, newPin);
+        return ResponseEntity.ok(Map.of("message", "Owner PIN successfully reset by administrator."));
     }
 }

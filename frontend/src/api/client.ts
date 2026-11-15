@@ -1,4 +1,23 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+/**
+ * Resolves the backend API base URL:
+ * - If VITE_API_URL is explicitly set at build time, uses that URL.
+ * - In development mode (import.meta.env.DEV), falls back to 'http://localhost:8080'.
+ * - In production mode (import.meta.env.PROD), falls back to empty string '' (same-origin relative URL).
+ *   This ensures no 'localhost' references leak into production bundles and allows
+ *   Cloudflare Workers reverse-proxying or same-origin API hosting without Mixed Content or CORS errors.
+ */
+function getApiBaseUrl(): string {
+  const configured = import.meta.env.VITE_API_URL;
+  if (configured && configured.trim()) {
+    return configured.trim().replace(/\/+$/, '');
+  }
+  if (import.meta.env.DEV) {
+    return 'http://localhost:8080';
+  }
+  return '';
+}
+
+const BASE_URL = getApiBaseUrl();
 
 export interface CustomerSummary {
   id: number;

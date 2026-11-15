@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: queueless-db
+    restart: always
+    environment:
+      POSTGRES_DB: queueless
+      POSTGRES_USER: queueless
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-queueless_secure_db_pass_2026}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U queueless -d queueless"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: queueless-backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/queueless
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_DATASOURCE_USERNAME: queueless
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-queueless_secure_db_pass_2026}
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-queueless-ultra-secure-jwt-secret-key-for-digital-token-management-2026-32bytes!}
+      APP_ADMIN_KEY: ${APP_ADMIN_KEY:-admin-secret-queueless-2026}
+      APP_WEBPUSH_VAPID_PUBLIC_KEY: ${APP_WEBPUSH_VAPID_PUBLIC_KEY:-}
+      APP_WEBPUSH_VAPID_PRIVATE_KEY: ${APP_WEBPUSH_VAPID_PRIVATE_KEY:-}
+      APP_WEBPUSH_VAPID_SUBJECT: ${APP_WEBPUSH_VAPID_SUBJECT:-mailto:support@queueless.in}
+    volumes:
+      - appdata:/app/data
+
+volumes:
+  pgdata:
+  appdata:

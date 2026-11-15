@@ -33,7 +33,7 @@ public class ShopController {
     }
 
     private Shop getShopFromPrincipal(Principal principal) {
-        User user = userRepository.findByEmail(principal.getName())
+        User user = userRepository.findByIdentifier(principal.getName())
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + principal.getName()));
         return shopRepository.findByOwnerId(user.getId())
                 .orElseThrow(() -> new IllegalArgumentException("No shop found for user: " + principal.getName()));

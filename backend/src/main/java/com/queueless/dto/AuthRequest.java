@@ -1,24 +1,24 @@
 package com.queueless.dto;
 
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
-
 public class AuthRequest {
 
-    @NotBlank(message = "Email is required")
-    @Email(message = "Invalid email format")
     private String email;
-
-    @NotBlank(message = "Password is required")
-    @Size(min = 6, message = "Password must be at least 6 characters")
     private String password;
+    private String phone;
+    private String pin;
+    private String deviceFingerprint;
 
     public AuthRequest() {}
 
     public AuthRequest(String email, String password) {
         this.email = email;
         this.password = password;
+    }
+
+    public AuthRequest(String phone, String pin, String deviceFingerprint) {
+        this.phone = phone;
+        this.pin = pin;
+        this.deviceFingerprint = deviceFingerprint;
     }
 
     public String getEmail() {
@@ -35,5 +35,29 @@ public class AuthRequest {
 
     public void setPassword(String password) {
         this.password = password;
+    }
+
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = phone;
+    }
+
+    public String getPin() {
+        return pin;
+    }
+
+    public void setPin(String pin) {
+        this.pin = pin;
+    }
+
+    public String getDeviceFingerprint() {
+        return deviceFingerprint;
+    }
+
+    public void setDeviceFingerprint(String deviceFingerprint) {
+        this.deviceFingerprint = deviceFingerprint;
     }
 }

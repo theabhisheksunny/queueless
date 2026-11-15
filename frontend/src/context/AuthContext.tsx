@@ -17,7 +17,7 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (credentials: { email: string; password: string }) => Promise<void>;
+  login: (credentials: { email?: string; password?: string; phone?: string; pin?: string; deviceFingerprint?: string }) => Promise<void>;
   register: (data: any) => Promise<void>;
   logout: () => void;
   updateShopInfo: (name: string, category: string) => void;
@@ -33,7 +33,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
   const [isLoading, setIsLoading] = useState(false);
 
-  const login = async (credentials: { email: string; password: string }) => {
+  const login = async (credentials: { email?: string; password?: string; phone?: string; pin?: string; deviceFingerprint?: string }) => {
     setIsLoading(true);
     try {
       const res = await api.login(credentials);

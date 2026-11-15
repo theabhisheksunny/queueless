@@ -3,7 +3,23 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { api } from '../api/client';
-import { QrCode, Mail, Lock, User, Store, Clock, Phone, ArrowRight, Sparkles, Globe, KeyRound, CheckCircle2 } from 'lucide-react';
+import { 
+  QrCode, 
+  Lock, 
+  User, 
+  Store, 
+  Clock, 
+  Phone, 
+  ArrowRight, 
+  Sparkles, 
+  Globe, 
+  KeyRound, 
+  CheckCircle2, 
+  Eye, 
+  EyeOff, 
+  ShieldAlert, 
+  HelpCircle
+} from 'lucide-react';
 
 const CATEGORIES = [
   'Barber Shop',
@@ -26,17 +42,20 @@ export const LoginPage: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Form states
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
-  const [otp, setOtp] = useState('');
+  const [pin, setPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [confirmPinTouched, setConfirmPinTouched] = useState(false);
+  const [showPin, setShowPin] = useState(false);
+  const [fullName, setFullName] = useState('');
   const [shopName, setShopName] = useState('');
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [avgServiceDurationMinutes, setAvgServiceDurationMinutes] = useState(15);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   // OTP states
+  const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [otpCooldown, setOtpCooldown] = useState(0);
   const [testOtp, setTestOtp] = useState<string | null>(null);
@@ -81,11 +100,40 @@ export const LoginPage: React.FC = () => {
 
     try {
       if (mode === 'login') {
-        await login({ email, password });
-        navigate('/');
+        const effectivePin = pin.trim() || password.trim();
+        const effectivePhone = phone.trim();
+
+        if (effectivePhone && effectivePin) {
+          await login({
+            phone: effectivePhone,
+            pin: effectivePin,
+            deviceFingerprint: navigator.userAgent,
+          });
+          navigate('/');
+        } else if (email.trim() && password.trim()) {
+          await login({
+            email: email.trim(),
+            password: password.trim(),
+          });
+          navigate('/');
+        } else {
+          setError('Please enter your mobile number and 6-digit PIN.');
+        }
       } else if (mode === 'register') {
+        const effectivePin = pin.trim() || password.trim();
+        const effectiveConfirmPin = confirmPin.trim() || effectivePin;
+
+        if (effectivePin.length !== 6 || !/^\d{6}$/.test(effectivePin)) {
+          setError('PIN must be exactly 6 numeric digits (0-9).');
+          return;
+        }
+
+        if (effectivePin !== effectiveConfirmPin) {
+          setError('PIN and Confirm PIN do not match.');
+          return;
+        }
+
         if (!otp.trim()) {
-          // Auto-trigger OTP send if not already sent
           if (!otpSent) {
             await handleSendOtp();
             return;
@@ -95,28 +143,47 @@ export const LoginPage: React.FC = () => {
         }
 
         await register({
-          fullName,
-          email,
-          password,
-          phone,
+          fullName: fullName.trim(),
+          email: email.trim() || undefined,
+          phone: phone.trim(),
+          pin: effectivePin,
+          confirmPin: effectiveConfirmPin,
+          password: effectivePin,
           otp: otp.trim(),
-          shopName,
+          shopName: shopName.trim(),
           category,
           avgServiceDurationMinutes,
           deviceFingerprint: navigator.userAgent,
         });
         navigate('/');
       } else if (mode === 'recover') {
-        if (!phone.trim() || !otp.trim() || !newPassword.trim()) {
-          setError('Phone, OTP, and new password are all required.');
+        if (!phone.trim() || !otp.trim() || !pin.trim()) {
+          setError('Mobile number, OTP, and new 6-digit PIN are all required.');
           return;
         }
-        await api.resetPassword({
+
+        if (pin.trim().length !== 6 || !/^\d{6}$/.test(pin.trim())) {
+          setError('New PIN must be exactly 6 numeric digits (0-9).');
+          return;
+        }
+
+        if (confirmPin.trim() && pin.trim() !== confirmPin.trim()) {
+          setError('New PIN and Confirm PIN do not match.');
+          return;
+        }
+
+        await api.resetPin({
           phone: phone.trim(),
           otp: otp.trim(),
-          newPassword: newPassword.trim(),
+          newPin: pin.trim(),
+          confirmPin: confirmPin.trim() || pin.trim(),
+          deviceFingerprint: navigator.userAgent,
         });
-        setSuccessMsg(t('passwordResetSuccess'));
+
+        setSuccessMsg(t('pinResetSuccess'));
+        setPin('');
+        setConfirmPin('');
+        setOtp('');
         setMode('login');
       }
     } catch (err: any) {
@@ -135,7 +202,7 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8 relative selection:bg-brand-500 selection:text-white">
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-10 px-4 sm:px-6 lg:px-8 relative selection:bg-brand-500 selection:text-white">
       {/* Top right language switch */}
       <div className="absolute top-6 right-6">
         <button
@@ -149,18 +216,18 @@ export const LoginPage: React.FC = () => {
 
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
         {/* Brand Icon */}
-        <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-brand-700 to-brand-500 mx-auto flex items-center justify-center text-white shadow-xl shadow-brand-500/25 mb-4 animate-bounce-short">
+        <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-brand-700 to-brand-500 mx-auto flex items-center justify-center text-white shadow-xl shadow-brand-500/25 mb-3 animate-bounce-short">
           <QrCode className="w-8 h-8" />
         </div>
         <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
           QueueLess
         </h1>
-        <p className="text-sm font-medium text-slate-500 mt-1 max-w-xs mx-auto">
+        <p className="text-xs font-semibold text-slate-500 mt-1 max-w-xs mx-auto">
           {t('tagline')}
         </p>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+      <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-6 sm:px-10 rounded-3xl shadow-xl shadow-slate-200/60 border border-slate-100">
           {/* Mode Switch Tabs */}
           {mode !== 'recover' ? (
@@ -198,9 +265,9 @@ export const LoginPage: React.FC = () => {
             </div>
           ) : (
             <div className="flex items-center justify-between mb-6 pb-2 border-b border-slate-100">
-              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <KeyRound className="w-5 h-5 text-brand-600" />
-                {t('resetPassword')}
+                {t('resetPin')}
               </h2>
               <button
                 type="button"
@@ -215,10 +282,17 @@ export const LoginPage: React.FC = () => {
             </div>
           )}
 
+          {/* Subtitle helper */}
+          <div className="mb-5 text-xs text-slate-500 font-medium">
+            {mode === 'login' && t('pinLoginSubtitle')}
+            {mode === 'register' && t('pinRegisterSubtitle')}
+          </div>
+
           {/* Alerts */}
           {error && (
-            <div className="mb-4 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm font-medium">
-              {error}
+            <div className="mb-4 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm font-medium flex items-start gap-2">
+              <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              <span>{error}</span>
             </div>
           )}
           {successMsg && (
@@ -232,6 +306,7 @@ export const LoginPage: React.FC = () => {
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === 'register' && (
               <>
+                {/* Shop Name */}
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
                     {t('shopName')} <span className="text-rose-500">*</span>
@@ -249,9 +324,10 @@ export const LoginPage: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Category */}
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                    {t('category')}
+                    {t('category')} <span className="text-rose-500">*</span>
                   </label>
                   <select
                     value={category}
@@ -266,6 +342,7 @@ export const LoginPage: React.FC = () => {
                   </select>
                 </div>
 
+                {/* Full Name */}
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
                     {t('fullName')} <span className="text-rose-500">*</span>
@@ -282,210 +359,188 @@ export const LoginPage: React.FC = () => {
                     />
                   </div>
                 </div>
-
-                {/* Mobile Phone Number with Send OTP Button */}
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                    {t('phone')} <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
-                      <Phone className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="tel"
-                        required
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="e.g. 9876543210"
-                        className="w-full pl-11 pr-3 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleSendOtp}
-                      disabled={isSendingOtp || otpCooldown > 0 || !phone.trim()}
-                      className="px-4 py-3 rounded-2xl bg-brand-50 hover:bg-brand-100/80 border border-brand-200/80 text-brand-700 font-bold text-xs shrink-0 transition-colors disabled:opacity-50"
-                    >
-                      {otpCooldown > 0 ? `${t('resendIn')} ${otpCooldown}s` : isSendingOtp ? 'Sending...' : t('sendOtp')}
-                    </button>
-                  </div>
-                </div>
-
-                {/* OTP Input Field */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
-                      {t('enterOtp')} <span className="text-rose-500">*</span>
-                    </label>
-                    {testOtp && (
-                      <button
-                        type="button"
-                        onClick={() => setOtp(testOtp)}
-                        className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-200 transition-colors"
-                      >
-                        Demo OTP: {testOtp}
-                      </button>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <KeyRound className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      maxLength={6}
-                      value={otp}
-                      onChange={(e) => setOtp(e.target.value)}
-                      placeholder="e.g. 123456"
-                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-mono font-bold tracking-widest transition-all"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                    {t('avgServiceTime')} ({t('minutes')})
-                  </label>
-                  <div className="relative">
-                    <Clock className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="number"
-                      min="1"
-                      max="180"
-                      value={avgServiceDurationMinutes}
-                      onChange={(e) => setAvgServiceDurationMinutes(Number(e.target.value))}
-                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
-                    />
-                  </div>
-                </div>
               </>
             )}
 
-            {mode === 'recover' ? (
-              <>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                    {t('phone')} <span className="text-rose-500">*</span>
+            {/* Mobile Phone Number (Used in Login, Register, and Recover) */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
+                {t('phone')} <span className="text-rose-500">*</span>
+              </label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1 text-slate-500 font-bold text-xs">
+                    <Phone className="w-4 h-4 text-slate-400" />
+                    <span>+91</span>
+                  </div>
+                  <input
+                    type="tel"
+                    required
+                    maxLength={10}
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
+                    placeholder="e.g. 9876543210"
+                    className="w-full pl-16 pr-3 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-semibold transition-all"
+                  />
+                </div>
+                {mode !== 'login' && (
+                  <button
+                    type="button"
+                    onClick={handleSendOtp}
+                    disabled={isSendingOtp || otpCooldown > 0 || !phone.trim()}
+                    className="px-4 py-3 rounded-2xl bg-brand-50 hover:bg-brand-100/80 border border-brand-200/80 text-brand-700 font-bold text-xs shrink-0 transition-colors disabled:opacity-50"
+                  >
+                    {otpCooldown > 0 ? `${t('resendIn')} ${otpCooldown}s` : isSendingOtp ? 'Sending...' : t('sendOtp')}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* OTP Input Field (Register & Recover) */}
+            {mode !== 'login' && (
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
+                    {t('enterOtp')} <span className="text-rose-500">*</span>
                   </label>
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
-                      <Phone className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="tel"
-                        required
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="e.g. 9876543210"
-                        className="w-full pl-11 pr-3 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
-                      />
-                    </div>
+                  {testOtp && (
                     <button
                       type="button"
-                      onClick={handleSendOtp}
-                      disabled={isSendingOtp || otpCooldown > 0 || !phone.trim()}
-                      className="px-4 py-3 rounded-2xl bg-brand-50 hover:bg-brand-100/80 border border-brand-200/80 text-brand-700 font-bold text-xs shrink-0 transition-colors disabled:opacity-50"
+                      onClick={() => setOtp(testOtp)}
+                      className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-200 transition-colors"
                     >
-                      {otpCooldown > 0 ? `${t('resendIn')} ${otpCooldown}s` : isSendingOtp ? 'Sending...' : t('sendOtp')}
+                      Demo OTP: {testOtp}
                     </button>
-                  </div>
+                  )}
                 </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
-                      {t('enterOtp')} <span className="text-rose-500">*</span>
-                    </label>
-                    {testOtp && (
-                      <button
-                        type="button"
-                        onClick={() => setOtp(testOtp)}
-                        className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-200 transition-colors"
-                      >
-                        Demo OTP: {testOtp}
-                      </button>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <KeyRound className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      maxLength={6}
-                      required
-                      value={otp}
-                      onChange={(e) => setOtp(e.target.value)}
-                      placeholder="e.g. 123456"
-                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-mono font-bold tracking-widest transition-all"
-                    />
-                  </div>
+                <div className="relative">
+                  <KeyRound className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    maxLength={6}
+                    required
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                    placeholder="e.g. 123456"
+                    className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-mono font-bold tracking-widest transition-all"
+                  />
                 </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                    {t('newPassword')} <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="password"
-                      required
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
-                    />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                    {t('email')} <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="owner@example.com"
-                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
-                      {t('password')} <span className="text-rose-500">*</span>
-                    </label>
-                    {mode === 'login' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMode('recover');
-                          setError(null);
-                        }}
-                        className="text-xs text-brand-600 font-semibold hover:underline"
-                      >
-                        {t('forgotPassword')}
-                      </button>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <Lock className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
-                    />
-                  </div>
-                </div>
-              </>
+              </div>
             )}
 
+            {/* 6-Digit PIN (Login, Register, Recover) */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
+                  {mode === 'recover' ? t('newPin') : t('pin')} <span className="text-rose-500">*</span>
+                </label>
+                {mode === 'login' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('recover');
+                      setError(null);
+                      setSuccessMsg(null);
+                    }}
+                    className="text-xs text-brand-600 font-bold hover:underline"
+                  >
+                    {t('forgotPin')}
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <Lock className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  name="pin"
+                  data-testid="pin-input"
+                  type={showPin ? 'text' : 'password'}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  required
+                  value={pin}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '');
+                    setPin(val);
+                    setPassword(val);
+                    if (!confirmPinTouched) {
+                      setConfirmPin(val);
+                    }
+                  }}
+                  placeholder="••••••"
+                  className="w-full pl-11 pr-11 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-mono font-bold tracking-widest transition-all text-center"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPin(!showPin)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Confirm PIN (Register and Recover only) */}
+            {mode !== 'login' && (
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
+                  {t('confirmPin')} <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <Lock className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    name="confirmPin"
+                    data-testid="confirm-pin-input"
+                    type={showPin ? 'text' : 'password'}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    required
+                    value={confirmPin}
+                    onChange={(e) => {
+                      setConfirmPinTouched(true);
+                      setConfirmPin(e.target.value.replace(/\D/g, ''));
+                    }}
+                    placeholder="••••••"
+                    className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-mono font-bold tracking-widest transition-all text-center"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Avg Service Time (Register only) */}
+            {mode === 'register' && (
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
+                  {t('avgServiceTime')} ({t('minutes')})
+                </label>
+                <div className="relative">
+                  <Clock className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="number"
+                    min="1"
+                    max="180"
+                    value={avgServiceDurationMinutes}
+                    onChange={(e) => setAvgServiceDurationMinutes(Number(e.target.value))}
+                    className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Fallback hidden email input to support existing browser autocomplete or test helpers */}
+            {mode === 'register' && (
+              <div className="hidden">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="owner@example.com"
+                />
+              </div>
+            )}
+
+            {/* Submit Button */}
             <button
               type="submit"
               disabled={isLoading}
@@ -497,12 +552,25 @@ export const LoginPage: React.FC = () => {
                   : mode === 'login'
                   ? t('loginBtn')
                   : mode === 'recover'
-                  ? t('resetPassword')
+                  ? t('resetPin')
                   : t('registerBtn')}
               </span>
               <ArrowRight className="w-5 h-5" />
             </button>
           </form>
+
+          {/* Lost SIM Card / Manual Recovery Notice (in Recover Mode) */}
+          {mode === 'recover' && (
+            <div className="mt-6 p-4 rounded-2xl bg-amber-50/80 border border-amber-200/80 text-amber-900 text-xs">
+              <div className="flex items-start gap-2">
+                <HelpCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-bold text-amber-950 mb-0.5">{t('lostSimRecoveryTitle')}</div>
+                  <div className="text-amber-800 leading-relaxed">{t('lostSimRecoveryMsg')}</div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Quick Demo Login Button */}
           {mode === 'login' && (

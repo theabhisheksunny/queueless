@@ -24,8 +24,8 @@ test.describe('Lock Business Category & ₹101 Category Change Fee E2E Tests', (
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
 
-    await page.fill('input[placeholder*="owner@example.com"]', email);
-    await page.fill('input[type="password"]', 'pass1234');
+    await page.fill('input[name="pin"]', '123456');
+    await page.fill('input[name="confirmPin"]', '123456');
     await page.locator('button[type="submit"]').click();
 
     await expect(page.getByText('Customer Queue Register')).toBeVisible();
@@ -131,8 +131,8 @@ test.describe('Lock Business Category & ₹101 Category Change Fee E2E Tests', (
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
 
-    await page.fill('input[placeholder*="owner@example.com"]', email);
-    await page.fill('input[type="password"]', 'pass1234');
+    await page.fill('input[name="pin"]', '123456');
+    await page.fill('input[name="confirmPin"]', '123456');
     await page.locator('button[type="submit"]').click();
 
     await expect(page.getByText('Customer Queue Register')).toBeVisible();

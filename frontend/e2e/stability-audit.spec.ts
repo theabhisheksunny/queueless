@@ -34,8 +34,8 @@ test.describe('QueueLess Real-World Stability Audit & Workflow Verification', ()
     const uniquePhone = '98' + (uniqueId % 100000000).toString().padStart(8, '0');
     await ownerPage.fill('input[placeholder*="9876543210"]', uniquePhone);
     await ownerPage.getByRole('button', { name: /Send OTP/i }).click();
-    await ownerPage.fill('input[placeholder*="owner@example.com"]', ownerEmail);
-    await ownerPage.fill('input[type="password"]', 'clinicPass123');
+    await ownerPage.fill('input[name="pin"]', '123456');
+    await ownerPage.fill('input[name="confirmPin"]', '123456');
 
     // Submit registration
     await ownerPage.locator('button[type="submit"]').click();

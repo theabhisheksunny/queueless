@@ -146,7 +146,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     let errorMsg = 'An error occurred';
     try {
       const errorJson = await response.json();
-      errorMsg = errorJson.error || errorJson.message || JSON.stringify(errorJson);
+      errorMsg = errorJson.message || errorJson.error || JSON.stringify(errorJson);
     } catch {
       errorMsg = await response.text() || response.statusText;
     }
@@ -166,6 +166,10 @@ export const api = {
   // Auth
   register: (data: any) => request<any>('/api/auth/register', { method: 'POST', body: JSON.stringify(data) }),
   login: (data: any) => request<any>('/api/auth/login', { method: 'POST', body: JSON.stringify(data) }),
+  pinLogin: (phone: string, pin: string, deviceFingerprint?: string) =>
+    request<any>('/api/auth/login', { method: 'POST', body: JSON.stringify({ phone, pin, deviceFingerprint }) }),
+  resetPin: (data: { phone: string; otp: string; newPin: string; confirmPin: string; deviceFingerprint?: string }) =>
+    request<any>('/api/auth/reset-pin', { method: 'POST', body: JSON.stringify(data) }),
   sendOtp: (phone: string) => request<{ message: string; cooldownSeconds: number; testOtp?: string }>('/api/auth/otp/send', { method: 'POST', body: JSON.stringify({ phone }) }),
   verifyOtp: (phone: string, otp: string) => request<{ verified: boolean; message: string }>('/api/auth/otp/verify', { method: 'POST', body: JSON.stringify({ phone, otp }) }),
   resetPassword: (data: { phone: string; otp: string; newPassword: string }) => request<any>('/api/auth/reset-password', { method: 'POST', body: JSON.stringify(data) }),

@@ -35,7 +35,7 @@ public class OwnerCategoryChangeController {
     }
 
     private User getAuthenticatedUser(Principal principal) {
-        return userRepository.findByEmail(principal.getName())
+        return userRepository.findByIdentifier(principal.getName())
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + principal.getName()));
     }
 

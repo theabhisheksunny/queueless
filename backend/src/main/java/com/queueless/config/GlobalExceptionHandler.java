@@ -1,5 +1,6 @@
 package com.queueless.config;
 
+import com.queueless.exception.AccountLockedException;
 import com.queueless.exception.SubscriptionRequiredException;
 import com.queueless.exception.TokenExpiredException;
 import com.queueless.exception.TrialAlreadyConsumedException;
@@ -78,9 +79,20 @@ public class GlobalExceptionHandler {
         return createErrorResponse(HttpStatus.CONFLICT, ex.getMessage());
     }
 
+    @ExceptionHandler(AccountLockedException.class)
+    public ResponseEntity<Map<String, Object>> handleAccountLocked(AccountLockedException ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("timestamp", LocalDateTime.now());
+        body.put("status", HttpStatus.LOCKED.value());
+        body.put("error", ex.getMessage());
+        body.put("code", "ACCOUNT_LOCKED");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.LOCKED).body(body);
+    }
+
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<Map<String, Object>> handleBadCredentials(BadCredentialsException ex) {
-        return createErrorResponse(HttpStatus.UNAUTHORIZED, "Invalid email or password");
+        return createErrorResponse(HttpStatus.UNAUTHORIZED, ex.getMessage() != null ? ex.getMessage() : "Invalid credentials");
     }
 
     @ExceptionHandler(AccessDeniedException.class)

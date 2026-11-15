@@ -9,16 +9,18 @@ public class RegisterRequest {
     @NotBlank(message = "Your name is required")
     private String fullName;
 
-    @NotBlank(message = "Email is required")
-    @Email(message = "Invalid email format")
     private String email;
 
-    @NotBlank(message = "Password is required")
-    @Size(min = 6, message = "Password must be at least 6 characters")
     private String password;
 
+    private String pin;
+
+    private String confirmPin;
+
+    @NotBlank(message = "Mobile number is required")
     private String phone;
 
+    @NotBlank(message = "OTP is required")
     private String otp;
 
     private String deviceFingerprint;
@@ -54,6 +56,22 @@ public class RegisterRequest {
 
     public void setPassword(String password) {
         this.password = password;
+    }
+
+    public String getPin() {
+        return pin;
+    }
+
+    public void setPin(String pin) {
+        this.pin = pin;
+    }
+
+    public String getConfirmPin() {
+        return confirmPin;
+    }
+
+    public void setConfirmPin(String confirmPin) {
+        this.confirmPin = confirmPin;
     }
 
     public String getPhone() {

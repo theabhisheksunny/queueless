@@ -1,17 +1,13 @@
 package com.queueless.service;
 
-import com.queueless.dto.AuthRequest;
-import com.queueless.dto.AuthResponse;
-import com.queueless.dto.PasswordResetRequest;
-import com.queueless.dto.RegisterRequest;
+import com.queueless.dto.*;
 import com.queueless.entity.*;
+import com.queueless.exception.AccountLockedException;
 import com.queueless.exception.TrialAlreadyConsumedException;
 import com.queueless.repository.*;
 import com.queueless.security.JwtTokenProvider;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,7 +17,6 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.Optional;
 
 @Service
 public class AuthService {
@@ -72,12 +67,13 @@ public class AuthService {
         this.clock = clock;
         this.entitlementService.setClock(clock);
         this.otpVerificationService.setClock(clock);
+        this.tokenProvider.setClock(clock);
     }
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
-        if (userRepository.existsByEmail(request.getEmail().trim().toLowerCase())) {
-            throw new IllegalArgumentException("An account with this email already exists.");
+        if (request.getPhone() == null || request.getPhone().isBlank()) {
+            throw new IllegalArgumentException("Mobile number is required.");
         }
 
         // Normalize Indian mobile number
@@ -98,14 +94,50 @@ public class AuthService {
         // Verify mobile OTP
         otpVerificationService.verifyOtp(normalizedPhone, request.getOtp());
 
+        // Resolve PIN or password
+        String credential;
+        if (request.getPin() != null && !request.getPin().isBlank()) {
+            String pin = request.getPin().trim();
+            if (!pin.matches("^\\d{6}$")) {
+                throw new IllegalArgumentException("PIN must be exactly 6 digits.");
+            }
+            if (request.getConfirmPin() != null && !request.getConfirmPin().isBlank()
+                    && !pin.equals(request.getConfirmPin().trim())) {
+                throw new IllegalArgumentException("PIN and Confirm PIN do not match.");
+            }
+            credential = pin;
+        } else if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            credential = request.getPassword().trim();
+        } else {
+            throw new IllegalArgumentException("A 6-digit PIN is required.");
+        }
+
+        // Resolve email (optional for non-technical users; generated fallback if omitted)
+        String email;
+        if (request.getEmail() != null && !request.getEmail().isBlank()) {
+            email = request.getEmail().trim().toLowerCase();
+        } else {
+            String rawPhoneDigits = normalizedPhone.replaceAll("[^0-9]", "");
+            email = rawPhoneDigits + "@owner.queueless.local";
+        }
+
+        if (userRepository.existsByEmail(email)) {
+            throw new IllegalArgumentException("An account with this email already exists.");
+        }
+
         // Create User
         User user = new User(
-                request.getEmail().trim().toLowerCase(),
-                passwordEncoder.encode(request.getPassword()),
+                email,
+                passwordEncoder.encode(credential),
                 request.getFullName().trim(),
                 normalizedPhone,
                 UserRole.ROLE_OWNER
         );
+        LocalDateTime nowUtc = LocalDateTime.now(clock);
+        user.setCredentialsUpdatedAt(clock.instant());
+        user.setLastLoginAt(nowUtc);
+        user.setLastDeviceFingerprint(request.getDeviceFingerprint());
+        user.setFailedPinAttempts(0);
         user = userRepository.save(user);
 
         // Create Shop (Duplicate shop names are permitted; shops are strictly keyed by internal shopId)
@@ -120,7 +152,6 @@ public class AuthService {
         // Grant exactly 7 calendar days trial
         LocalDate today = LocalDate.now(clock);
         LocalDate expiryDate = today.plusDays(7);
-        LocalDateTime nowUtc = LocalDateTime.now(clock);
         LocalDateTime trialEndsAt = nowUtc.plusDays(7);
 
         Subscription trial = new Subscription(
@@ -151,11 +182,13 @@ public class AuthService {
         ledger.setDeviceFingerprint(request.getDeviceFingerprint());
         trialEligibilityLedgerRepository.save(ledger);
 
-        String token = tokenProvider.generateTokenForUsername(user.getEmail());
+        String tokenSubject = user.getPhone() != null ? user.getPhone() : user.getEmail();
+        String token = tokenProvider.generateTokenForUsername(tokenSubject);
 
         return new AuthResponse(
                 token,
                 user.getEmail(),
+                user.getPhone(),
                 user.getFullName(),
                 user.getRole(),
                 shop.getId(),
@@ -166,19 +199,161 @@ public class AuthService {
         );
     }
 
-    @Transactional(readOnly = true)
+    /**
+     * Mobile + 6-digit PIN login with brute-force lockout (5 attempts -> 15 min lock).
+     * No SMS OTP on routine login.
+     */
+    @Transactional(noRollbackFor = {BadCredentialsException.class, AccountLockedException.class})
+    public AuthResponse pinLogin(PinLoginRequest request, String clientIp) {
+        if (request.getPhone() == null || request.getPhone().isBlank()) {
+            throw new BadCredentialsException("Mobile number is required.");
+        }
+        if (request.getPin() == null || !request.getPin().matches("^\\d{6}$")) {
+            throw new BadCredentialsException("PIN must be exactly 6 digits.");
+        }
+
+        String normalizedPhone = phoneNormalizationService.normalize(request.getPhone());
+        User user = userRepository.findByPhone(normalizedPhone)
+                .orElseThrow(() -> new BadCredentialsException("No account found with this mobile number. Please check the number or register."));
+
+        LocalDateTime now = LocalDateTime.now(clock);
+
+        // Lockout check
+        if (user.getPinLockedUntil() != null && user.getPinLockedUntil().isAfter(now)) {
+            long minutesRemaining = ChronoUnit.MINUTES.between(now, user.getPinLockedUntil()) + 1;
+            throw new AccountLockedException("Account temporarily locked due to multiple failed PIN attempts. Please try again after " + minutesRemaining + " minute(s) or reset your PIN.");
+        }
+
+        // Validate 6-digit PIN
+        if (!passwordEncoder.matches(request.getPin(), user.getPassword())) {
+            int attempts = (user.getFailedPinAttempts() != null ? user.getFailedPinAttempts() : 0) + 1;
+            user.setFailedPinAttempts(attempts);
+
+            if (attempts >= 5) {
+                user.setPinLockedUntil(now.plusMinutes(15));
+                userRepository.save(user);
+                throw new AccountLockedException("Incorrect PIN. Account locked for 15 minutes due to 5 consecutive failed attempts. You can reset your PIN to regain access immediately.");
+            } else {
+                userRepository.save(user);
+                try {
+                    // Progressive delay (200ms per attempt)
+                    Thread.sleep(Math.min(attempts * 200L, 800L));
+                } catch (InterruptedException ignored) {}
+                int remaining = 5 - attempts;
+                throw new BadCredentialsException("Incorrect PIN. " + remaining + " attempt(s) remaining before account lockout.");
+            }
+        }
+
+        // Reset failed attempts on success
+        user.setFailedPinAttempts(0);
+        user.setPinLockedUntil(null);
+        user.setLastLoginAt(now);
+        if (clientIp != null && !clientIp.isBlank()) {
+            user.setLastLoginIp(clientIp);
+        }
+        if (request.getDeviceFingerprint() != null && !request.getDeviceFingerprint().isBlank()) {
+            user.setLastDeviceFingerprint(request.getDeviceFingerprint());
+        }
+        userRepository.save(user);
+
+        String tokenSubject = user.getPhone() != null ? user.getPhone() : user.getEmail();
+        String token = tokenProvider.generateTokenForUsername(tokenSubject);
+
+        return buildAuthResponse(token, user);
+    }
+
+    @Transactional(noRollbackFor = {BadCredentialsException.class, AccountLockedException.class})
     public AuthResponse login(AuthRequest request) {
-        String email = request.getEmail().trim().toLowerCase();
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(email, request.getPassword())
-        );
+        String identifier = request.getEmail().trim();
+        User user = userRepository.findByIdentifier(identifier)
+                .orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
 
-        SecurityContextHolder.getContext().setAuthentication(authentication);
-        String token = tokenProvider.generateToken(authentication);
+        LocalDateTime now = LocalDateTime.now(clock);
+        if (user.getPinLockedUntil() != null && user.getPinLockedUntil().isAfter(now)) {
+            long minutesRemaining = ChronoUnit.MINUTES.between(now, user.getPinLockedUntil()) + 1;
+            throw new AccountLockedException("Account temporarily locked due to multiple failed attempts. Please try again after " + minutesRemaining + " minute(s) or reset your PIN.");
+        }
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            int attempts = (user.getFailedPinAttempts() != null ? user.getFailedPinAttempts() : 0) + 1;
+            user.setFailedPinAttempts(attempts);
+            if (attempts >= 5) {
+                user.setPinLockedUntil(now.plusMinutes(15));
+                userRepository.save(user);
+                throw new AccountLockedException("Incorrect credentials. Account locked for 15 minutes due to 5 consecutive failed attempts.");
+            } else {
+                userRepository.save(user);
+                int remaining = 5 - attempts;
+                throw new BadCredentialsException("Incorrect credentials. " + remaining + " attempt(s) remaining before account lockout.");
+            }
+        }
 
+        user.setFailedPinAttempts(0);
+        user.setPinLockedUntil(null);
+        user.setLastLoginAt(now);
+        userRepository.save(user);
+
+        String tokenSubject = user.getPhone() != null ? user.getPhone() : user.getEmail();
+        String token = tokenProvider.generateTokenForUsername(tokenSubject);
+
+        return buildAuthResponse(token, user);
+    }
+
+    /**
+     * Resets 6-digit PIN using mobile OTP verification.
+     * Revokes all previous sessions and tokens immediately (sets credentialsUpdatedAt).
+     * Clears lockout.
+     * Preserves subscription and trial history without resetting eligibility.
+     */
+    @Transactional
+    public void resetPin(PinResetRequest request) {
+        if (request.getPhone() == null || request.getPhone().isBlank()) {
+            throw new IllegalArgumentException("Mobile number is required.");
+        }
+        if (request.getNewPin() == null || !request.getNewPin().matches("^\\d{6}$")) {
+            throw new IllegalArgumentException("New PIN must be exactly 6 digits.");
+        }
+        if (request.getConfirmPin() == null || !request.getNewPin().equals(request.getConfirmPin())) {
+            throw new IllegalArgumentException("New PIN and Confirm PIN do not match.");
+        }
+
+        String normalizedPhone = phoneNormalizationService.normalize(request.getPhone());
+        otpVerificationService.verifyOtp(normalizedPhone, request.getOtp());
+
+        User user = userRepository.findByPhone(normalizedPhone)
+                .orElseThrow(() -> new IllegalArgumentException("No account found with verified mobile number: " + normalizedPhone));
+
+        LocalDateTime now = LocalDateTime.now(clock);
+        user.setPassword(passwordEncoder.encode(request.getNewPin()));
+        user.setCredentialsUpdatedAt(clock.instant());
+        user.setFailedPinAttempts(0);
+        user.setPinLockedUntil(null);
+        if (request.getDeviceFingerprint() != null && !request.getDeviceFingerprint().isBlank()) {
+            user.setLastDeviceFingerprint(request.getDeviceFingerprint());
+        }
+        userRepository.save(user);
+    }
+
+    /**
+     * Legacy password reset compatibility.
+     * Revokes active sessions and clears lockout.
+     */
+    @Transactional
+    public void resetPassword(PasswordResetRequest request) {
+        String normalizedPhone = phoneNormalizationService.normalize(request.getPhone());
+        otpVerificationService.verifyOtp(normalizedPhone, request.getOtp().trim());
+
+        User user = userRepository.findByPhone(normalizedPhone)
+                .orElseThrow(() -> new IllegalArgumentException("No account found with verified mobile number: " + normalizedPhone));
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        user.setCredentialsUpdatedAt(clock.instant());
+        user.setFailedPinAttempts(0);
+        user.setPinLockedUntil(null);
+        userRepository.save(user);
+    }
+
+    private AuthResponse buildAuthResponse(String token, User user) {
         Shop shop = shopRepository.findByOwnerId(user.getId()).orElse(null);
 
         Long shopId = shop != null ? shop.getId() : null;
@@ -200,6 +375,7 @@ public class AuthService {
         return new AuthResponse(
                 token,
                 user.getEmail(),
+                user.getPhone(),
                 user.getFullName(),
                 user.getRole(),
                 shopId,
@@ -211,34 +387,16 @@ public class AuthService {
     }
 
     /**
-     * Resets password using mobile OTP verification.
-     * Preserves subscription and trial history without resetting eligibility.
-     */
-    @Transactional
-    public void resetPassword(PasswordResetRequest request) {
-        String normalizedPhone = phoneNormalizationService.normalize(request.getPhone());
-        otpVerificationService.verifyOtp(normalizedPhone, request.getOtp());
-
-        User user = userRepository.findByPhone(normalizedPhone)
-                .orElseThrow(() -> new IllegalArgumentException("No account found with verified mobile number: " + normalizedPhone));
-
-        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
-        userRepository.save(user);
-    }
-
-    /**
      * Securely deletes the shop owner account.
-     * Crucial: Account deletion does NOT delete the trial eligibility ledger.
-     * Future registration attempts with the same phone will be prevented from claiming a new trial.
+     * Account deletion does NOT delete the trial eligibility ledger.
      */
     @Transactional
-    public void deleteAccount(String ownerEmail) {
-        User user = userRepository.findByEmail(ownerEmail.trim().toLowerCase())
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + ownerEmail));
+    public void deleteAccount(String identifier) {
+        User user = userRepository.findByIdentifier(identifier)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + identifier));
 
         String userPhone = user.getPhone();
         if (userPhone != null) {
-            // Update ledger status to ACCOUNT_DELETED, unlinking owner and shop ID while preserving the trial record
             trialEligibilityLedgerRepository.findByNormalizedPhone(userPhone).ifPresent(ledger -> {
                 ledger.setRegistrationStatus("ACCOUNT_DELETED");
                 ledger.setOwnerId(null);

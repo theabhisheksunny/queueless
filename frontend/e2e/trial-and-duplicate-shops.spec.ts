@@ -25,8 +25,8 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page1.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page1.getByRole('button', { name: /Resend in/i })).toBeVisible();
 
-    await page1.fill('input[placeholder*="owner@example.com"]', email1);
-    await page1.fill('input[type="password"]', 'mumbaiPass123');
+    await page1.fill('input[name="pin"]', '123456');
+    await page1.fill('input[name="confirmPin"]', '123456');
     await page1.locator('button[type="submit"]').click();
 
     await expect(page1.getByText('Customer Queue Register')).toBeVisible();
@@ -63,8 +63,8 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page2.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page2.getByRole('button', { name: /Resend in/i })).toBeVisible();
 
-    await page2.fill('input[placeholder*="owner@example.com"]', email2);
-    await page2.fill('input[type="password"]', 'delhiPass123');
+    await page2.fill('input[name="pin"]', '123456');
+    await page2.fill('input[name="confirmPin"]', '123456');
     await page2.locator('button[type="submit"]').click();
 
     await expect(page2.getByText('Customer Queue Register')).toBeVisible();
@@ -107,8 +107,8 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
 
-    await page.fill('input[placeholder*="owner@example.com"]', `owner1_${timestamp}@queueless.com`);
-    await page.fill('input[type="password"]', 'pass1234');
+    await page.fill('input[name="pin"]', '123456');
+    await page.fill('input[name="confirmPin"]', '123456');
     await page.locator('button[type="submit"]').click();
 
     await expect(page.getByText('Customer Queue Register')).toBeVisible();
@@ -117,7 +117,7 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page.getByRole('button', { name: /Logout|लॉगआउट/i }).click();
     await expect(page.locator('h1')).toContainText('QueueLess');
 
-    // Attempt second registration with different email but SAME mobile number
+    // Attempt second registration with different details but SAME mobile number
     await page.getByRole('button', { name: /Create Account|साइन अप/i }).click();
     await page.fill('input[placeholder*="Royal Hair Salon"]', 'Second Trial Attempt');
     await page.fill('input[placeholder*="Ramesh Sharma"]', 'Abuse Attempter');
@@ -125,8 +125,8 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
 
-    await page.fill('input[placeholder*="owner@example.com"]', `owner2_${timestamp}@queueless.com`);
-    await page.fill('input[type="password"]', 'pass1234');
+    await page.fill('input[name="pin"]', '123456');
+    await page.fill('input[name="confirmPin"]', '123456');
     await page.locator('button[type="submit"]').click();
 
     // Verify rejection alert
@@ -147,8 +147,8 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
 
-    await page.fill('input[placeholder*="owner@example.com"]', email);
-    await page.fill('input[type="password"]', 'pass1234');
+    await page.fill('input[name="pin"]', '123456');
+    await page.fill('input[name="confirmPin"]', '123456');
     await page.locator('button[type="submit"]').click();
 
     await expect(page.getByText('Customer Queue Register')).toBeVisible();
@@ -170,8 +170,8 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
 
-    await page.fill('input[placeholder*="owner@example.com"]', `newemail_${timestamp}@queueless.com`);
-    await page.fill('input[type="password"]', 'pass1234');
+    await page.fill('input[name="pin"]', '123456');
+    await page.fill('input[name="confirmPin"]', '123456');
     await page.locator('button[type="submit"]').click();
 
     // Verify rejection by persistent ledger
@@ -192,8 +192,8 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
 
-    await page.fill('input[placeholder*="owner@example.com"]', email);
-    await page.fill('input[type="password"]', 'initialPass123');
+    await page.fill('input[name="pin"]', '123456');
+    await page.fill('input[name="confirmPin"]', '123456');
     await page.locator('button[type="submit"]').click();
 
     await expect(page.getByText('Customer Queue Register')).toBeVisible();
@@ -201,22 +201,23 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     // 2. Logout
     await page.getByRole('button', { name: /Logout|लॉगआउट/i }).click();
 
-    // 3. Click Forgot Password
-    await page.getByRole('button', { name: /Forgot Password\?/i }).click();
-    await expect(page.getByRole('heading', { name: /Reset Password/i })).toBeVisible();
+    // 3. Click Forgot PIN
+    await page.getByRole('button', { name: /Forgot PIN\?|पिन भूल गए\?/i }).click();
+    await expect(page.getByRole('heading', { name: /Reset.*PIN|पिन रीसेट/i })).toBeVisible();
 
     await page.fill('input[placeholder*="9876543210"]', phone);
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
 
-    await page.fill('input[placeholder*="••••••••"]', 'updatedSecurePass123');
+    await page.fill('input[name="pin"]', '654321');
+    await page.fill('input[name="confirmPin"]', '654321');
     await page.locator('button[type="submit"]').click();
 
-    await expect(page.getByText(/Password reset successfully/i)).toBeVisible();
+    await expect(page.getByText(/PIN reset successfully/i)).toBeVisible();
 
-    // 4. Log in with new password
-    await page.fill('input[placeholder*="owner@example.com"]', email);
-    await page.fill('input[placeholder*="••••••••"]', 'updatedSecurePass123');
+    // 4. Log in with new PIN (Routine Login with phone + PIN)
+    await page.fill('input[placeholder*="9876543210"]', phone);
+    await page.fill('input[name="pin"]', '654321');
     await page.locator('button[type="submit"]').click();
 
     await expect(page.getByText('Customer Queue Register')).toBeVisible();

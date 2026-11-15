@@ -1,6 +1,7 @@
 package com.queueless.entity;
 
 import jakarta.persistence.*;
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
@@ -26,6 +27,24 @@ public class User {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private UserRole role = UserRole.ROLE_OWNER;
+
+    @Column(name = "failed_pin_attempts")
+    private Integer failedPinAttempts = 0;
+
+    @Column(name = "pin_locked_until")
+    private LocalDateTime pinLockedUntil;
+
+    @Column(name = "credentials_updated_at")
+    private Instant credentialsUpdatedAt;
+
+    @Column(name = "last_login_at")
+    private LocalDateTime lastLoginAt;
+
+    @Column(name = "last_login_ip", length = 64)
+    private String lastLoginIp;
+
+    @Column(name = "last_device_fingerprint", length = 255)
+    private String lastDeviceFingerprint;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -100,6 +119,54 @@ public class User {
 
     public void setRole(UserRole role) {
         this.role = role;
+    }
+
+    public Integer getFailedPinAttempts() {
+        return failedPinAttempts != null ? failedPinAttempts : 0;
+    }
+
+    public void setFailedPinAttempts(Integer failedPinAttempts) {
+        this.failedPinAttempts = failedPinAttempts;
+    }
+
+    public LocalDateTime getPinLockedUntil() {
+        return pinLockedUntil;
+    }
+
+    public void setPinLockedUntil(LocalDateTime pinLockedUntil) {
+        this.pinLockedUntil = pinLockedUntil;
+    }
+
+    public Instant getCredentialsUpdatedAt() {
+        return credentialsUpdatedAt;
+    }
+
+    public void setCredentialsUpdatedAt(Instant credentialsUpdatedAt) {
+        this.credentialsUpdatedAt = credentialsUpdatedAt;
+    }
+
+    public LocalDateTime getLastLoginAt() {
+        return lastLoginAt;
+    }
+
+    public void setLastLoginAt(LocalDateTime lastLoginAt) {
+        this.lastLoginAt = lastLoginAt;
+    }
+
+    public String getLastLoginIp() {
+        return lastLoginIp;
+    }
+
+    public void setLastLoginIp(String lastLoginIp) {
+        this.lastLoginIp = lastLoginIp;
+    }
+
+    public String getLastDeviceFingerprint() {
+        return lastDeviceFingerprint;
+    }
+
+    public void setLastDeviceFingerprint(String lastDeviceFingerprint) {
+        this.lastDeviceFingerprint = lastDeviceFingerprint;
     }
 
     public LocalDateTime getCreatedAt() {

@@ -5,6 +5,7 @@ import com.queueless.entity.UserRole;
 public class AuthResponse {
     private String token;
     private String email;
+    private String phone;
     private String fullName;
     private UserRole role;
     private Long shopId;
@@ -27,6 +28,29 @@ public class AuthResponse {
         this.category = category;
         this.subscriptionActive = subscriptionActive;
         this.subscriptionDaysRemaining = subscriptionDaysRemaining;
+    }
+
+    public AuthResponse(String token, String email, String phone, String fullName, UserRole role,
+                        Long shopId, String shopName, String category,
+                        boolean subscriptionActive, long subscriptionDaysRemaining) {
+        this.token = token;
+        this.email = email;
+        this.phone = phone;
+        this.fullName = fullName;
+        this.role = role;
+        this.shopId = shopId;
+        this.shopName = shopName;
+        this.category = category;
+        this.subscriptionActive = subscriptionActive;
+        this.subscriptionDaysRemaining = subscriptionDaysRemaining;
+    }
+
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = phone;
     }
 
     public String getToken() {

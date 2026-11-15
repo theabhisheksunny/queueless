@@ -9,6 +9,9 @@
     "not_found_handling": "single-page-application",
     "html_handling": "auto-trailing-slash"
   },
+  "vars": {
+    "BACKEND_API_URL": "https://queueless-backend-1043223278240.asia-south1.run.app"
+  },
   "observability": {
     "enabled": true
   }

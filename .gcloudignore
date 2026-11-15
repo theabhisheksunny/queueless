@@ -1,0 +1,13 @@
+.gcloudignore
+.git/
+.gitignore
+**/node_modules/
+**/target/
+**/data/
+**/*.mv.db
+**/*.trace.db
+**/test-results/
+**/playwright-report/
+.idea/
+.vscode/
+*.iml

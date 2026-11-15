@@ -62,17 +62,21 @@ public class QueueLessApplication {
 
             // Seed demo shop owner for quick instant testing if not existing
             if (!userRepo.existsByEmail("owner@queueless.com")) {
-                RegisterRequest demoOwner = new RegisterRequest();
-                demoOwner.setFullName("Ramesh Sharma");
-                demoOwner.setEmail("owner@queueless.com");
-                demoOwner.setPassword("password123");
-                demoOwner.setPhone("9876543210");
-                demoOwner.setShopName("Royal Hair Salon & Spa");
-                demoOwner.setCategory("Salon & Spa");
-                demoOwner.setAvgServiceDurationMinutes(15);
-                demoOwner.setOtp("123456");
-                authService.register(demoOwner);
-                log.info("Demo shop owner created: owner@queueless.com / password123");
+                try {
+                    RegisterRequest demoOwner = new RegisterRequest();
+                    demoOwner.setFullName("Ramesh Sharma");
+                    demoOwner.setEmail("owner@queueless.com");
+                    demoOwner.setPassword("password123");
+                    demoOwner.setPhone("9876543210");
+                    demoOwner.setShopName("Royal Hair Salon & Spa");
+                    demoOwner.setCategory("Salon & Spa");
+                    demoOwner.setAvgServiceDurationMinutes(15);
+                    demoOwner.setOtp("123456");
+                    authService.register(demoOwner);
+                    log.info("Demo shop owner created: owner@queueless.com / password123");
+                } catch (Exception e) {
+                    log.warn("Could not seed demo shop owner (non-fatal): {}", e.getMessage());
+                }
             }
         };
     }

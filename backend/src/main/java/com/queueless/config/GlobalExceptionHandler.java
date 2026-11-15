@@ -1,6 +1,7 @@
 package com.queueless.config;
 
 import com.queueless.exception.AccountLockedException;
+import com.queueless.exception.SmsProviderUnavailableException;
 import com.queueless.exception.SubscriptionRequiredException;
 import com.queueless.exception.TokenExpiredException;
 import com.queueless.exception.TrialAlreadyConsumedException;
@@ -88,6 +89,17 @@ public class GlobalExceptionHandler {
         body.put("code", "ACCOUNT_LOCKED");
         body.put("message", ex.getMessage());
         return ResponseEntity.status(HttpStatus.LOCKED).body(body);
+    }
+
+    @ExceptionHandler(SmsProviderUnavailableException.class)
+    public ResponseEntity<Map<String, Object>> handleSmsProviderUnavailable(SmsProviderUnavailableException ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("timestamp", LocalDateTime.now());
+        body.put("status", HttpStatus.SERVICE_UNAVAILABLE.value());
+        body.put("error", "SMS Provider Unavailable");
+        body.put("code", "SMS_PROVIDER_UNAVAILABLE");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
     }
 
     @ExceptionHandler(BadCredentialsException.class)

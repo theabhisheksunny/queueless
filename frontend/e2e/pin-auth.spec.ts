@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { fillDispatchedOtp } from './test-otp-helper';
 
 test.describe('Mobile Number & 6-Digit PIN Authentication', () => {
   test('1. Simple Shop Owner Registration with Mobile Number and 6-Digit PIN (No email needed)', async ({ page }) => {
@@ -21,6 +22,12 @@ test.describe('Mobile Number & 6-Digit PIN Authentication', () => {
     // Send OTP
     await page.getByRole('button', { name: /Send OTP|ओटीपी भेजें/i }).click();
     await expect(page.getByRole('button', { name: /Resend in|पुनः भेजें/i })).toBeVisible();
+
+    // Verify Demo OTP badge is NOT visible anywhere
+    await expect(page.locator('text=Demo OTP')).not.toBeVisible();
+
+    // Fill the actual dynamic OTP sent via SMS
+    await fillDispatchedOtp(page, phone);
 
     // Enter 6-digit PIN & Confirm PIN
     await page.fill('input[name="pin"]', '456789');
@@ -49,6 +56,7 @@ test.describe('Mobile Number & 6-Digit PIN Authentication', () => {
     await page.fill('input[placeholder*="9876543210"]', phone);
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
+    await fillDispatchedOtp(page, phone);
 
     await page.fill('input[name="pin"]', '112233');
     await page.fill('input[name="confirmPin"]', '112233');
@@ -82,6 +90,7 @@ test.describe('Mobile Number & 6-Digit PIN Authentication', () => {
     await page.fill('input[placeholder*="9876543210"]', phone);
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
+    await fillDispatchedOtp(page, phone);
 
     await page.fill('input[name="pin"]', '998877');
     await page.fill('input[name="confirmPin"]', '998877');
@@ -125,6 +134,7 @@ test.describe('Mobile Number & 6-Digit PIN Authentication', () => {
     await page.fill('input[placeholder*="9876543210"]', phone);
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
+    await fillDispatchedOtp(page, phone);
 
     await page.fill('input[name="pin"]', '123123');
     await page.fill('input[name="confirmPin"]', '123123');
@@ -146,6 +156,7 @@ test.describe('Mobile Number & 6-Digit PIN Authentication', () => {
     await page.fill('input[placeholder*="9876543210"]', phone);
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
+    await fillDispatchedOtp(page, phone);
 
     // Set new PIN
     await page.fill('input[name="pin"]', '654321');
@@ -183,5 +194,39 @@ test.describe('Mobile Number & 6-Digit PIN Authentication', () => {
     // Switch back to English
     await page.getByRole('button', { name: /English/i }).click();
     await expect(page.getByRole('button', { name: /Sign In/i })).toBeVisible();
+  });
+
+  test('6. Security Verification: Demo OTP badge is removed and fixed OTP (123456) is rejected', async ({ page }) => {
+    const timestamp = Date.now();
+    const phone = '94' + (timestamp % 100000000).toString().padStart(8, '0');
+
+    await page.goto('/login');
+    await page.getByRole('button', { name: /Create Account|खाता बनाएं/i }).click();
+
+    await page.fill('input[placeholder*="Royal Hair Salon"]', `Security Test Shop ${timestamp % 1000}`);
+    await page.selectOption('select', 'Barber Shop');
+    await page.fill('input[placeholder*="Ramesh Sharma"]', 'Security Tester');
+    await page.fill('input[placeholder*="9876543210"]', phone);
+
+    // Send OTP
+    await page.getByRole('button', { name: /Send OTP/i }).click();
+    await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
+
+    // 1. Confirm NO "Demo OTP" badge is displayed
+    await expect(page.locator('text=Demo OTP')).not.toBeVisible();
+
+    // 2. Enter hardcoded "123456" OTP
+    await page.fill('input[placeholder*="Enter 6-digit OTP"]', '123456');
+    await page.fill('input[name="pin"]', '556677');
+    await page.fill('input[name="confirmPin"]', '556677');
+    await page.locator('button[type="submit"]').click();
+
+    // 3. Verify rejected with clear Invalid OTP error message
+    await expect(page.getByText(/Invalid OTP/i)).toBeVisible();
+
+    // 4. Entering correct dynamic OTP now succeeds
+    await fillDispatchedOtp(page, phone);
+    await page.locator('button[type="submit"]').click();
+    await expect(page.getByText('Customer Queue Register')).toBeVisible();
   });
 });

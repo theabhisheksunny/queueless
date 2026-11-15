@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { fillDispatchedOtp } from './test-otp-helper';
 
 test.describe('Lock Business Category & ₹101 Category Change Fee E2E Tests', () => {
 
@@ -23,6 +24,7 @@ test.describe('Lock Business Category & ₹101 Category Change Fee E2E Tests', (
     await page.fill('input[placeholder*="9876543210"]', phone);
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
+    await fillDispatchedOtp(page, phone);
 
     await page.fill('input[name="pin"]', '123456');
     await page.fill('input[name="confirmPin"]', '123456');
@@ -130,6 +132,7 @@ test.describe('Lock Business Category & ₹101 Category Change Fee E2E Tests', (
     await page.fill('input[placeholder*="9876543210"]', phone);
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByRole('button', { name: /Resend in/i })).toBeVisible();
+    await fillDispatchedOtp(page, phone);
 
     await page.fill('input[name="pin"]', '123456');
     await page.fill('input[name="confirmPin"]', '123456');

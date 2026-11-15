@@ -62,6 +62,9 @@ class CategoryChangeSecurityTest {
     @Autowired
     private com.queueless.repository.UserRepository userRepository;
 
+    @Autowired
+    private TestRegistrationHelper testRegistrationHelper;
+
     @Value("${app.admin.key:admin-secret-queueless-2026}")
     private String adminKey;
 
@@ -79,7 +82,7 @@ class CategoryChangeSecurityTest {
         req.setEmail(ownerEmail);
         req.setPassword("testPassword123");
         req.setPhone("98" + (10000000 + (int)(Math.random() * 89999999)));
-        req.setOtp("123456");
+        testRegistrationHelper.prepareOtp(req);
         req.setShopName("Ramesh Classic Hair Salon");
         req.setCategory("Barber Shop");
 
@@ -318,7 +321,7 @@ class CategoryChangeSecurityTest {
         req1.setEmail("ownerA_" + System.currentTimeMillis() + "@hub.com");
         req1.setPassword("pass123");
         req1.setPhone("98" + (10000000 + (int)(Math.random() * 89999999)));
-        req1.setOtp("123456");
+        testRegistrationHelper.prepareOtp(req1);
         req1.setShopName(sharedName);
         req1.setCategory("Barber Shop");
         var auth1 = authService.register(req1);
@@ -329,7 +332,7 @@ class CategoryChangeSecurityTest {
         req2.setEmail("ownerB_" + System.currentTimeMillis() + "@hub.com");
         req2.setPassword("pass123");
         req2.setPhone("98" + (10000000 + (int)(Math.random() * 89999999)));
-        req2.setOtp("123456");
+        testRegistrationHelper.prepareOtp(req2);
         req2.setShopName(sharedName);
         req2.setCategory("Barber Shop");
         var auth2 = authService.register(req2);

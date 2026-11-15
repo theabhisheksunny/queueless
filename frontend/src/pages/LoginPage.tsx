@@ -58,7 +58,6 @@ export const LoginPage: React.FC = () => {
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [otpCooldown, setOtpCooldown] = useState(0);
-  const [testOtp, setTestOtp] = useState<string | null>(null);
   const [isSendingOtp, setIsSendingOtp] = useState(false);
 
   // Cooldown countdown timer
@@ -81,13 +80,10 @@ export const LoginPage: React.FC = () => {
       const res = await api.sendOtp(phone.trim());
       setOtpSent(true);
       setOtpCooldown(res.cooldownSeconds || 60);
-      if (res.testOtp) {
-        setTestOtp(res.testOtp);
-        setOtp(res.testOtp);
-      }
       setSuccessMsg(`OTP sent to ${phone.trim()}`);
     } catch (err: any) {
       setError(err.message || 'Failed to send OTP.');
+      setOtpSent(false);
     } finally {
       setIsSendingOtp(false);
     }
@@ -399,20 +395,9 @@ export const LoginPage: React.FC = () => {
             {/* OTP Input Field (Register & Recover) */}
             {mode !== 'login' && (
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
-                    {t('enterOtp')} <span className="text-rose-500">*</span>
-                  </label>
-                  {testOtp && (
-                    <button
-                      type="button"
-                      onClick={() => setOtp(testOtp)}
-                      className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-200 transition-colors"
-                    >
-                      Demo OTP: {testOtp}
-                    </button>
-                  )}
-                </div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
+                  {t('enterOtp')} <span className="text-rose-500">*</span>
+                </label>
                 <div className="relative">
                   <KeyRound className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
@@ -421,7 +406,7 @@ export const LoginPage: React.FC = () => {
                     required
                     value={otp}
                     onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                    placeholder="e.g. 123456"
+                    placeholder="Enter 6-digit OTP"
                     className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-mono font-bold tracking-widest transition-all"
                   />
                 </div>

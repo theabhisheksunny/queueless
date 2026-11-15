@@ -46,6 +46,9 @@ class PinAuthenticationSecurityTest {
     @Autowired
     private OtpVerificationService otpVerificationService;
 
+    @Autowired
+    private TestRegistrationHelper testRegistrationHelper;
+
     private Clock mockClock;
 
     @BeforeEach
@@ -64,7 +67,7 @@ class PinAuthenticationSecurityTest {
         req.setShopName("Kishore Barber Saloon");
         req.setCategory("Barber Shop");
         req.setPhone(phone);
-        req.setOtp("123456");
+        testRegistrationHelper.prepareOtp(req);
         req.setPin("654321");
         req.setConfirmPin("654321");
 
@@ -95,7 +98,7 @@ class PinAuthenticationSecurityTest {
         req.setShopName("Verma Auto Repairs");
         req.setCategory("Automobile Service");
         req.setPhone(phone);
-        req.setOtp("123456");
+        testRegistrationHelper.prepareOtp(req);
         req.setPin("112233");
         req.setConfirmPin("112233");
         authService.register(req);
@@ -137,7 +140,7 @@ class PinAuthenticationSecurityTest {
         req.setShopName("Sunita Homoeopathy Clinic");
         req.setCategory("Clinic & Doctor");
         req.setPhone(phone);
-        req.setOtp("123456");
+        testRegistrationHelper.prepareOtp(req);
         req.setPin("445566");
         req.setConfirmPin("445566");
         var authRes = authService.register(req);
@@ -149,11 +152,13 @@ class PinAuthenticationSecurityTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.shopName").value("Sunita Homoeopathy Clinic"));
 
-        // Fast forward clock 1 minute and reset PIN
-        Instant resetTime = Instant.parse("2026-11-15T10:01:00Z");
+        // Fast forward clock 2 minutes (past 60s cooldown) and reset PIN
+        Instant resetTime = Instant.parse("2026-11-15T10:02:00Z");
         authService.setClock(Clock.fixed(resetTime, ZoneId.of("UTC")));
+        otpVerificationService.setClock(Clock.fixed(resetTime, ZoneId.of("UTC")));
 
-        PinResetRequest resetReq = new PinResetRequest(phone, "123456", "778899", "778899");
+        String resetOtp = testRegistrationHelper.obtainOtp(phone);
+        PinResetRequest resetReq = new PinResetRequest(phone, resetOtp, "778899", "778899");
         mockMvc.perform(post("/api/auth/reset-pin")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(resetReq)))
@@ -191,7 +196,7 @@ class PinAuthenticationSecurityTest {
         req.setShopName("Dinesh Electronics");
         req.setCategory("Repair Shop");
         req.setPhone(phone);
-        req.setOtp("123456");
+        testRegistrationHelper.prepareOtp(req);
         req.setPin("123123");
         req.setConfirmPin("123123");
         var authRes = authService.register(req);
@@ -199,9 +204,11 @@ class PinAuthenticationSecurityTest {
         // Advance clock by 3 days
         Instant threeDaysLater = Instant.parse("2026-11-18T10:00:00Z");
         authService.setClock(Clock.fixed(threeDaysLater, ZoneId.of("UTC")));
+        otpVerificationService.setClock(Clock.fixed(threeDaysLater, ZoneId.of("UTC")));
 
         // Reset PIN
-        PinResetRequest resetReq = new PinResetRequest(phone, "123456", "987987", "987987");
+        String resetOtp2 = testRegistrationHelper.obtainOtp(phone);
+        PinResetRequest resetReq = new PinResetRequest(phone, resetOtp2, "987987", "987987");
         authService.resetPin(resetReq);
 
         // Check login days remaining: should be 4 days (7 - 3 = 4), NOT 7!
@@ -219,17 +226,20 @@ class PinAuthenticationSecurityTest {
         shortPin.setFullName("Bad Pin Tester");
         shortPin.setShopName("Bad Shop");
         shortPin.setPhone(phone);
-        shortPin.setOtp("123456");
+        testRegistrationHelper.prepareOtp(shortPin);
         shortPin.setPin("1234"); // 4 digits
         shortPin.setConfirmPin("1234");
 
         assertThrows(IllegalArgumentException.class, () -> authService.register(shortPin));
 
+        // Advance clock past cooldown for next request on same phone
+        otpVerificationService.setClock(Clock.fixed(Instant.parse("2026-11-15T10:02:00Z"), ZoneId.of("UTC")));
+
         RegisterRequest nonNumericPin = new RegisterRequest();
         nonNumericPin.setFullName("Alpha Pin Tester");
         nonNumericPin.setShopName("Bad Shop 2");
         nonNumericPin.setPhone(phone);
-        nonNumericPin.setOtp("123456");
+        testRegistrationHelper.prepareOtp(nonNumericPin);
         nonNumericPin.setPin("abcdef"); // non-numeric
         nonNumericPin.setConfirmPin("abcdef");
 

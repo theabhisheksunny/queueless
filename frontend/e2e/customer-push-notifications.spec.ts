@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { fillDispatchedOtp } from './test-otp-helper';
 
 test.describe('Customer Live Queue Push Notifications (PWA + Web Push)', () => {
   const timestamp = Date.now();
@@ -65,6 +66,7 @@ test.describe('Customer Live Queue Push Notifications (PWA + Web Push)', () => {
 
     await page.getByRole('button', { name: /Send OTP|ओटीपी भेजें/i }).click();
     await expect(page.getByRole('button', { name: /Resend in|पुनः भेजें/i })).toBeVisible();
+    await fillDispatchedOtp(page, testPhone);
 
     await page.fill('input[name="pin"]', testPin);
     await page.fill('input[name="confirmPin"]', testPin);

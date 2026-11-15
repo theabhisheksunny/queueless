@@ -55,6 +55,9 @@ public class TokenExpirationPolicyTest {
     @Autowired
     private SseEmitterService sseEmitterService;
 
+    @Autowired
+    private TestRegistrationHelper testRegistrationHelper;
+
     private Long testShopId;
     private String publicQueueId;
     private Clock baseClock;
@@ -71,7 +74,7 @@ public class TokenExpirationPolicyTest {
         registerReq.setEmail("barber_" + System.currentTimeMillis() + "@queueless.com");
         registerReq.setPassword("password123");
         registerReq.setPhone("98" + (10000000 + (int)(Math.random() * 89999999)));
-        registerReq.setOtp("123456");
+        testRegistrationHelper.prepareOtp(registerReq);
         registerReq.setShopName("Precision Hair Studio");
         registerReq.setCategory("Salon");
         registerReq.setAvgServiceDurationMinutes(15);

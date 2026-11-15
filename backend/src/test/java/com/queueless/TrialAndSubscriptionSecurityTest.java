@@ -63,6 +63,9 @@ class TrialAndSubscriptionSecurityTest {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private TestRegistrationHelper testRegistrationHelper;
+
     private Clock baseClock;
 
     @BeforeEach
@@ -86,7 +89,7 @@ class TrialAndSubscriptionSecurityTest {
         req1.setEmail("aakash_" + System.currentTimeMillis() + "@test.com");
         req1.setPassword("secretPass1");
         req1.setPhone("98111" + (10000 + (int)(Math.random() * 89999)));
-        req1.setOtp("123456");
+        testRegistrationHelper.prepareOtp(req1);
         req1.setShopName(sharedShopName); // Identical shop name
         req1.setCategory("Salon & Spa");
         var auth1 = authService.register(req1);
@@ -98,7 +101,7 @@ class TrialAndSubscriptionSecurityTest {
         req2.setEmail("deepak_" + System.currentTimeMillis() + "@test.com");
         req2.setPassword("secretPass2");
         req2.setPhone("98222" + (10000 + (int)(Math.random() * 89999)));
-        req2.setOtp("123456");
+        testRegistrationHelper.prepareOtp(req2);
         req2.setShopName(sharedShopName); // Identical shop name
         req2.setCategory("Salon & Spa");
         var auth2 = authService.register(req2);
@@ -158,7 +161,7 @@ class TrialAndSubscriptionSecurityTest {
         firstReq.setEmail("orig_" + System.currentTimeMillis() + "@test.com");
         firstReq.setPassword("password123");
         firstReq.setPhone(testPhone);
-        firstReq.setOtp("123456");
+        testRegistrationHelper.prepareOtp(firstReq);
         firstReq.setShopName("Original Shop");
         firstReq.setDeviceFingerprint("device-fingerprint-desktop-chrome");
         var authRes = authService.register(firstReq);
@@ -212,7 +215,7 @@ class TrialAndSubscriptionSecurityTest {
         req.setEmail(email);
         req.setPassword("pass1234");
         req.setPhone(testPhone);
-        req.setOtp("123456");
+        testRegistrationHelper.prepareOtp(req);
         req.setShopName("Temporary Clinic");
         authService.register(req);
 
@@ -252,7 +255,7 @@ class TrialAndSubscriptionSecurityTest {
         req.setEmail(email);
         req.setPassword("oldPassword123");
         req.setPhone(testPhone);
-        req.setOtp("123456");
+        testRegistrationHelper.prepareOtp(req);
         req.setShopName("Secure Clinic");
         var authRes = authService.register(req);
         Long shopId = authRes.getShopId();
@@ -262,9 +265,11 @@ class TrialAndSubscriptionSecurityTest {
         authService.setClock(day3Clock);
         entitlementService.setClock(day3Clock);
         subscriptionService.setClock(day3Clock);
+        otpVerificationService.setClock(day3Clock);
 
-        // Perform password reset via OTP
-        PasswordResetRequest resetReq = new PasswordResetRequest(testPhone, "123456", "newPassword456");
+        // Perform password reset via dynamic OTP
+        String resetOtp = testRegistrationHelper.obtainOtp(testPhone);
+        PasswordResetRequest resetReq = new PasswordResetRequest(testPhone, resetOtp, "newPassword456");
         mockMvc.perform(post("/api/auth/reset-password")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(resetReq)))
@@ -288,6 +293,7 @@ class TrialAndSubscriptionSecurityTest {
     @DisplayName("9. Concurrent registrations with same verified mobile — Only ONE trial can be consumed")
     void testConcurrentRegistrationsOnlyOneTrialConsumed() throws Exception {
         String concurrentPhone = "9876540009";
+        String sharedDynamicOtp = testRegistrationHelper.obtainOtp(concurrentPhone);
         int threads = 4;
         ExecutorService executor = Executors.newFixedThreadPool(threads);
         CountDownLatch startLatch = new CountDownLatch(1);
@@ -306,7 +312,7 @@ class TrialAndSubscriptionSecurityTest {
                     req.setEmail("concurrent_" + idx + "_" + System.currentTimeMillis() + "@test.com");
                     req.setPassword("password123");
                     req.setPhone(concurrentPhone);
-                    req.setOtp("123456");
+                    req.setOtp(sharedDynamicOtp);
                     req.setShopName("Concurrent Shop " + idx);
 
                     authService.register(req);
@@ -340,7 +346,7 @@ class TrialAndSubscriptionSecurityTest {
         req.setEmail(email);
         req.setPassword("pass123");
         req.setPhone(phone);
-        req.setOtp("123456");
+        testRegistrationHelper.prepareOtp(req);
         req.setShopName("Boundary Salon");
         var authRes = authService.register(req);
         Long shopId = authRes.getShopId();
@@ -400,7 +406,7 @@ class TrialAndSubscriptionSecurityTest {
         req.setEmail(email);
         req.setPassword("pass123");
         req.setPhone(phone);
-        req.setOtp("123456");
+        testRegistrationHelper.prepareOtp(req);
         req.setShopName("Paid Salon");
         var authRes = authService.register(req);
         Long shopId = authRes.getShopId();

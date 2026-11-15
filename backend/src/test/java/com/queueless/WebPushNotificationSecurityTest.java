@@ -67,6 +67,9 @@ public class WebPushNotificationSecurityTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private TestRegistrationHelper testRegistrationHelper;
+
     @MockBean
     private WebPushClient webPushClient;
 
@@ -84,10 +87,10 @@ public class WebPushNotificationSecurityTest {
         req.setEmail("aakash@pushshop.test");
         req.setPassword("pushPass123");
         req.setPhone("9811122233");
+        testRegistrationHelper.prepareOtp(req);
         req.setShopName("Aakash Express Cuts");
         req.setCategory("Salon & Spa");
         req.setAvgServiceDurationMinutes(10);
-        req.setOtp("123456");
 
         var authRes = authService.register(req);
         testShopId = authRes.getShopId();

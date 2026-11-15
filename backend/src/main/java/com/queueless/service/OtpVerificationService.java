@@ -2,7 +2,9 @@ package com.queueless.service;
 
 import com.queueless.dto.OtpSendResponse;
 import com.queueless.entity.OtpRecord;
+import com.queueless.exception.SmsProviderUnavailableException;
 import com.queueless.repository.OtpRecordRepository;
+import com.queueless.service.sms.SmsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,13 +27,8 @@ public class OtpVerificationService {
 
     private final OtpRecordRepository otpRecordRepository;
     private final PhoneNormalizationService phoneNormalizationService;
+    private final SmsService smsService;
     private Clock clock;
-
-    @Value("${app.otp.bypass-for-testing:false}")
-    private boolean bypassForTesting;
-
-    @Value("${app.otp.expose-in-response:true}")
-    private boolean exposeInResponse;
 
     @Value("${app.otp.expiry-minutes:5}")
     private int expiryMinutes;
@@ -44,9 +41,11 @@ public class OtpVerificationService {
 
     public OtpVerificationService(OtpRecordRepository otpRecordRepository,
                                   PhoneNormalizationService phoneNormalizationService,
+                                  SmsService smsService,
                                   Clock clock) {
         this.otpRecordRepository = otpRecordRepository;
         this.phoneNormalizationService = phoneNormalizationService;
+        this.smsService = smsService;
         this.clock = clock;
     }
 
@@ -54,19 +53,23 @@ public class OtpVerificationService {
         this.clock = clock;
     }
 
-    public void setBypassForTesting(boolean bypassForTesting) {
-        this.bypassForTesting = bypassForTesting;
-    }
-
     /**
-     * Generates and stores a hashed OTP with rate limiting and cooldown guards.
+     * Generates and dispatches a cryptographically secure 6-digit OTP.
+     * Enforces that a real SMS provider is configured; never generates fake or demo OTPs.
+     * Stores only a salted SHA-256 hash. Never exposes OTP in API responses or logs.
      */
     @Transactional
     public OtpSendResponse sendOtp(String rawPhone, String clientIp) {
+        if (!smsService.isConfigured()) {
+            throw new SmsProviderUnavailableException(
+                    "SMS verification service is currently unavailable. No SMS gateway provider is configured. Please configure an SMS provider (e.g., Fast2SMS or Twilio) in application settings."
+            );
+        }
+
         String normalizedPhone = phoneNormalizationService.normalize(rawPhone);
         LocalDateTime now = LocalDateTime.now(clock);
 
-        // Check if there is an active cooldown from recent unverified request
+        // Check active resend cooldown from previous request
         Optional<OtpRecord> existingOpt = otpRecordRepository.findTopByNormalizedPhoneOrderByCreatedAtDesc(normalizedPhone);
         if (existingOpt.isPresent()) {
             OtpRecord existing = existingOpt.get();
@@ -76,16 +79,16 @@ public class OtpVerificationService {
             }
         }
 
-        // Generate cryptographically secure 6-digit OTP
+        // Generate cryptographically secure random 6-digit OTP (100000 - 999999)
         int otpInt = 100000 + RANDOM.nextInt(900000);
         String plainOtp = String.valueOf(otpInt);
 
-        // Generate random salt
+        // Generate cryptographically secure 16-byte random salt
         byte[] saltBytes = new byte[16];
         RANDOM.nextBytes(saltBytes);
         String salt = HexFormat.of().formatHex(saltBytes);
 
-        // Hash OTP with salt using SHA-256 (never store in plaintext)
+        // Hash OTP with salt using SHA-256 (plain OTP is never stored in DB)
         String otpHash = hashOtp(plainOtp, salt);
 
         LocalDateTime expiresAt = now.plusMinutes(expiryMinutes);
@@ -94,37 +97,40 @@ public class OtpVerificationService {
         OtpRecord record = new OtpRecord(normalizedPhone, otpHash, salt, expiresAt, cooldownUntil);
         otpRecordRepository.save(record);
 
-        log.info("OTP generated for mobile: {} (expires: {})", normalizedPhone, expiresAt);
+        // Dispatch OTP via the configured SMS delivery provider
+        smsService.sendOtp(normalizedPhone, plainOtp);
+        log.info("OTP generated and dispatched via SMS provider for mobile: {} (expires: {})", normalizedPhone, expiresAt);
 
-        // In dev / test environment, return testOtp for seamless automation
-        String exposedOtp = exposeInResponse ? plainOtp : null;
+        // Return confirmation without exposing OTP value
         return new OtpSendResponse(
                 "OTP sent successfully to " + normalizedPhone,
-                cooldownSeconds,
-                exposedOtp
+                cooldownSeconds
         );
     }
 
     /**
-     * Verifies the submitted OTP against the salted hash.
-     * Enforces expiry and maximum attempt limit (max 5).
+     * Verifies the submitted OTP against the salted SHA-256 hash.
+     * Enforces 5-minute expiry, maximum 5 attempts, and rejects all invalid or hardcoded codes.
      */
-    @Transactional
+    @Transactional(noRollbackFor = {IllegalArgumentException.class, IllegalStateException.class})
     public boolean verifyOtp(String normalizedPhone, String submittedOtp) {
-        // If testing bypass is active and OTP matches standard test code or bypass is enabled
-        if (bypassForTesting && (submittedOtp == null || submittedOtp.isBlank() || "123456".equals(submittedOtp))) {
-            return true;
-        }
-
         if (submittedOtp == null || submittedOtp.isBlank()) {
             throw new IllegalArgumentException("OTP code is required.");
         }
 
         String cleanOtp = submittedOtp.trim();
+        if (!cleanOtp.matches("^\\d{6}$")) {
+            throw new IllegalArgumentException("OTP must be exactly 6 numeric digits.");
+        }
+
         LocalDateTime now = LocalDateTime.now(clock);
 
         OtpRecord record = otpRecordRepository.findTopByNormalizedPhoneOrderByCreatedAtDesc(normalizedPhone)
                 .orElseThrow(() -> new IllegalArgumentException("No OTP requested for " + normalizedPhone + ". Please request an OTP first."));
+
+        if (record.isVerified()) {
+            return true;
+        }
 
         if (record.getAttemptCount() >= maxAttempts) {
             throw new IllegalStateException("Maximum verification attempts (" + maxAttempts + ") exceeded. Please request a new OTP.");
@@ -139,14 +145,13 @@ public class OtpVerificationService {
 
         String computedHash = hashOtp(cleanOtp, record.getSalt());
         if (!computedHash.equals(record.getOtpHash())) {
-            // Also accept standard test OTP 123456 if in non-prod test mode
-            if (exposeInResponse && "123456".equals(cleanOtp)) {
-                record.setVerified(true);
-                otpRecordRepository.save(record);
-                return true;
-            }
             otpRecordRepository.save(record);
-            throw new IllegalArgumentException("Invalid OTP. Please check the code and try again.");
+            int remaining = maxAttempts - record.getAttemptCount();
+            if (remaining > 0) {
+                throw new IllegalArgumentException("Invalid OTP. " + remaining + " attempt(s) remaining.");
+            } else {
+                throw new IllegalStateException("Maximum verification attempts (" + maxAttempts + ") exceeded. Please request a new OTP.");
+            }
         }
 
         record.setVerified(true);

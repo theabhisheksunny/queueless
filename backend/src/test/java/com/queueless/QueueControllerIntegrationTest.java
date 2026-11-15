@@ -26,6 +26,9 @@ public class QueueControllerIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private TestRegistrationHelper testRegistrationHelper;
+
     private String ownerJwtToken;
     private Long shopId;
 
@@ -39,7 +42,7 @@ public class QueueControllerIntegrationTest {
         registerReq.setEmail(uniqueEmail);
         registerReq.setPassword("password123");
         registerReq.setPhone(uniquePhone);
-        registerReq.setOtp("123456");
+        testRegistrationHelper.prepareOtp(registerReq);
         registerReq.setShopName("Elite Barber & Spa");
         registerReq.setCategory("Barber Shop");
         registerReq.setAvgServiceDurationMinutes(12);

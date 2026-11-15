@@ -28,3 +28,5 @@ frontend/playwright-report/
 *.iml
 .DS_Store
 Thumbs.db
+
+.wrangler/

@@ -3,6 +3,10 @@
   "name": "queueless",
   "main": "frontend/worker.ts",
   "compatibility_date": "2026-03-01",
+  "build": {
+    "command": "npm install && npm run build",
+    "cwd": "frontend"
+  },
   "assets": {
     "directory": "./frontend/dist",
     "binding": "ASSETS",

@@ -1,0 +1,14 @@
+{
+  "name": "queueless",
+  "version": "1.0.0",
+  "private": true,
+  "description": "QueueLess - Digital Token Register",
+  "scripts": {
+    "build": "npm --prefix frontend install && npm --prefix frontend run build",
+    "deploy": "wrangler deploy",
+    "test": "npm --prefix frontend test"
+  },
+  "devDependencies": {
+    "wrangler": "^4.162.0"
+  }
+}

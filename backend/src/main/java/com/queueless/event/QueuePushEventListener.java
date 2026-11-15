@@ -60,7 +60,7 @@ public class QueuePushEventListener {
                 );
                 pushService.sendPushToCustomer(event.getTrackingToken(), payload);
             }
-            case CUSTOMER_LEFT, CUSTOMER_REMOVED -> {
+            case CUSTOMER_LEFT, CUSTOMER_REMOVED, CUSTOMER_NO_SHOW -> {
                 if (event.getTrackingToken() != null) {
                     pushService.closeCustomerNotification(event.getTrackingToken());
                 }

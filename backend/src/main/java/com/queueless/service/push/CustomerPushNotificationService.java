@@ -53,27 +53,56 @@ public class CustomerPushNotificationService {
         QueueCustomer customer = customerRepository.findByTrackingToken(trackingToken)
                 .orElseThrow(() -> new IllegalArgumentException("Customer tracking token not found"));
 
-        if (customer.getStatus() == CustomerQueueStatus.COMPLETED) {
-            // Check if completed token is already expired
-            LocalDateTime completedAt = customer.getCompletedAt();
-            if (completedAt != null && LocalDateTime.now().isAfter(completedAt.plusMinutes(15))) {
-                throw new IllegalStateException("Your token has expired. Cannot register push notifications.");
-            }
+        // Reject push registration if customer is in any terminal status
+        CustomerQueueStatus status = customer.getStatus();
+        if (status == CustomerQueueStatus.COMPLETED ||
+            status == CustomerQueueStatus.CANCELLED ||
+            status == CustomerQueueStatus.LEFT ||
+            status == CustomerQueueStatus.NO_SHOW) {
+            throw new IllegalStateException("Cannot register push notifications for a customer in " + status + " status.");
+        }
+
+        // Reject push registration if the queue session is closed
+        if (customer.getQueueSession().getStatus() != com.queueless.entity.QueueSessionStatus.OPEN) {
+            throw new IllegalStateException("Queue is currently closed. Cannot register push notifications.");
         }
 
         Shop shop = customer.getQueueSession().getShop();
         String endpoint = request.getEndpoint().trim();
 
-        CustomerPushSubscription subscription = subscriptionRepository
-                .findByCustomerTrackingTokenAndEndpoint(trackingToken, endpoint)
-                .orElseGet(() -> new CustomerPushSubscription(
-                        customer,
-                        shop,
-                        endpoint,
-                        request.getP256dh().trim(),
-                        request.getAuth().trim(),
-                        request.getUserAgent()
-                ));
+        // If this exact endpoint is currently active under another customer, deactivate it to prevent cross-session contamination
+        List<CustomerPushSubscription> existingWithEndpoint = subscriptionRepository.findByEndpoint(endpoint);
+        for (CustomerPushSubscription existing : existingWithEndpoint) {
+            if (!existing.getCustomer().getId().equals(customer.getId()) && existing.isActive()) {
+                existing.setActive(false);
+                subscriptionRepository.save(existing);
+                log.info("Deactivated existing subscription on endpoint for prior customer {}", existing.getCustomer().getId());
+            }
+        }
+
+        // Cap maximum active push subscriptions per customer session to prevent unbounded flooding DoS
+        List<CustomerPushSubscription> currentActive = subscriptionRepository.findByCustomerIdAndActiveTrue(customer.getId());
+        if (currentActive.size() >= 5) {
+            CustomerPushSubscription oldest = currentActive.get(0);
+            oldest.setActive(false);
+            subscriptionRepository.save(oldest);
+        }
+
+        List<CustomerPushSubscription> existingSubs = subscriptionRepository
+                .findByCustomerTrackingTokenAndEndpoint(trackingToken, endpoint);
+        CustomerPushSubscription subscription;
+        if (!existingSubs.isEmpty()) {
+            subscription = existingSubs.get(0);
+        } else {
+            subscription = new CustomerPushSubscription(
+                    customer,
+                    shop,
+                    endpoint,
+                    request.getP256dh().trim(),
+                    request.getAuth().trim(),
+                    request.getUserAgent()
+            );
+        }
 
         subscription.setP256dhKey(request.getP256dh().trim());
         subscription.setAuthSecret(request.getAuth().trim());
@@ -104,9 +133,21 @@ public class CustomerPushNotificationService {
         try {
             String json = objectMapper.writeValueAsString(payload);
             LocalDateTime now = LocalDateTime.now();
+            boolean isCritical = "CALLED".equalsIgnoreCase(payload.getStatus());
 
             for (CustomerPushSubscription sub : activeSubs) {
                 PushSendResult result = webPushClient.sendPush(sub, json);
+
+                // Transient retry for critical CALLED notifications
+                if (!result.isSuccess() && !result.isExpired() && isCritical) {
+                    try {
+                        Thread.sleep(300);
+                        result = webPushClient.sendPush(sub, json);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+
                 sub.setLastPushAt(now);
                 sub.setLastPushStatus(result.isSuccess() ? "SUCCESS" : (result.isExpired() ? "EXPIRED" : "FAILED"));
 
@@ -124,6 +165,13 @@ public class CustomerPushNotificationService {
     public void closeCustomerNotification(String trackingToken) {
         PushNotificationPayload closePayload = PushNotificationPayload.createClose(trackingToken);
         sendPushToCustomer(trackingToken, closePayload);
+
+        // Deactivate all subscriptions for this customer in database since they are in a terminal state
+        List<CustomerPushSubscription> subs = subscriptionRepository.findByCustomerTrackingTokenAndActiveTrue(trackingToken);
+        for (CustomerPushSubscription sub : subs) {
+            sub.setActive(false);
+        }
+        subscriptionRepository.saveAll(subs);
     }
 
     @Transactional
@@ -132,8 +180,11 @@ public class CustomerPushNotificationService {
         for (CustomerPushSubscription sub : subs) {
             String token = sub.getCustomer().getTrackingToken();
             if (token != null) {
-                closeCustomerNotification(token);
+                PushNotificationPayload closePayload = PushNotificationPayload.createClose(token);
+                sendPushToCustomer(token, closePayload);
             }
+            sub.setActive(false);
         }
+        subscriptionRepository.saveAll(subs);
     }
 }

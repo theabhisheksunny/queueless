@@ -24,6 +24,7 @@ import {
   checkPushStatus,
   subscribeCustomerPush,
   unsubscribeCustomerPush,
+  clearActiveQueueNotifications,
   type PushStatus,
 } from '../utils/pushManager';
 
@@ -76,6 +77,19 @@ export const CustomerTrackPage: React.FC = () => {
       setPushStatus(status);
     });
   }, [trackingToken]);
+
+  // Reconcile notifications when offline devices reconnect or when token reaches terminal state or expires
+  useEffect(() => {
+    const isTerminalStatus =
+      positionInfo?.status === 'COMPLETED' ||
+      positionInfo?.status === 'LEFT' ||
+      positionInfo?.status === 'CANCELLED' ||
+      positionInfo?.status === 'NO_SHOW';
+
+    if (isExpired || isTerminalStatus) {
+      clearActiveQueueNotifications(trackingToken);
+    }
+  }, [isExpired, positionInfo?.status, trackingToken]);
 
   const handleEnablePush = async () => {
     if (!trackingToken) return;
@@ -308,7 +322,10 @@ export const CustomerTrackPage: React.FC = () => {
   const isCalled = positionInfo.status === 'CALLED';
   const isServing = positionInfo.status === 'SERVING';
   const isCompleted = positionInfo.status === 'COMPLETED';
-  const isLeft = positionInfo.status === 'LEFT' || positionInfo.status === 'CANCELLED';
+  const isLeft = positionInfo.status === 'LEFT';
+  const isCancelled = positionInfo.status === 'CANCELLED';
+  const isNoShow = positionInfo.status === 'NO_SHOW';
+  const isTerminal = isCompleted || isLeft || isCancelled || isNoShow;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-brand-50/40 via-slate-50 to-slate-100 flex flex-col justify-between p-4 sm:p-6 selection:bg-brand-500 selection:text-white">
@@ -323,7 +340,7 @@ export const CustomerTrackPage: React.FC = () => {
 
         <div className="flex items-center gap-2">
           {/* Subtle Bell Button to restore dismissed notification prompt */}
-          {!isCompleted && !isLeft && pushStatus === 'unsubscribed' && pushDismissed && (
+          {!isTerminal && pushStatus === 'unsubscribed' && pushDismissed && (
             <button
               onClick={() => {
                 setPushDismissed(false);
@@ -393,7 +410,7 @@ export const CustomerTrackPage: React.FC = () => {
           </div>
 
           {/* CUSTOMER LIVE NOTIFICATIONS PROMPT & STATUS */}
-          {!isCompleted && !isLeft && (
+          {!isTerminal && (
             <>
               {pushStatus === 'subscribed' && (
                 <div className="mx-6 mt-4 p-3 bg-emerald-50/90 border border-emerald-200/80 rounded-2xl flex items-center justify-between text-xs font-semibold text-emerald-900 shadow-sm animate-fade-in">
@@ -543,7 +560,7 @@ export const CustomerTrackPage: React.FC = () => {
           </div>
 
           {/* Stats Grid: Currently Serving, People Ahead, Wait Time */}
-          {!isCompleted && !isLeft && (
+          {!isTerminal && (
             <div className="grid grid-cols-3 divide-x divide-slate-100 border-t border-b border-slate-100 bg-white">
               {/* Serving Now */}
               <div className="p-4 text-center">
@@ -577,7 +594,7 @@ export const CustomerTrackPage: React.FC = () => {
           )}
 
           {/* Estimate Disclaimer */}
-          {!isCompleted && !isLeft && (
+          {!isTerminal && (
             <div className="p-4 bg-slate-50/70 text-center">
               <p className="text-xs text-slate-400 font-medium italic">
                 * {t('waitDisclaimer')}
@@ -585,7 +602,7 @@ export const CustomerTrackPage: React.FC = () => {
             </div>
           )}
 
-          {/* Footer Action: Leave Queue or Rejoin */}
+          {/* Footer Action: Leave Queue, Rejoin, or Terminal Info */}
           <div className="p-6 bg-white border-t border-slate-100 text-center">
             {isLeft ? (
               <button
@@ -595,15 +612,7 @@ export const CustomerTrackPage: React.FC = () => {
                 <RotateCcw className="w-4 h-4" />
                 <span>{t('rejoinQueueBtn')}</span>
               </button>
-            ) : !isCompleted ? (
-              <button
-                onClick={() => setConfirmLeaveOpen(true)}
-                className="text-xs font-semibold text-slate-400 hover:text-rose-600 transition-colors inline-flex items-center gap-1.5"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>{t('leaveQueueBtn')}</span>
-              </button>
-            ) : (
+            ) : isCompleted ? (
               <div className="space-y-2">
                 <p className="text-base font-bold text-emerald-700">
                   {t('serviceCompletedMsg')}
@@ -612,6 +621,32 @@ export const CustomerTrackPage: React.FC = () => {
                   {t('completedGraceNotice')}
                 </p>
               </div>
+            ) : isNoShow ? (
+              <div className="space-y-2">
+                <p className="text-base font-bold text-rose-600">
+                  Marked as No-Show
+                </p>
+                <p className="text-xs text-slate-400 font-medium">
+                  You missed your turn. Please scan the shop QR code if you would like to join again.
+                </p>
+              </div>
+            ) : isCancelled ? (
+              <div className="space-y-2">
+                <p className="text-base font-bold text-slate-600">
+                  Token Cancelled
+                </p>
+                <p className="text-xs text-slate-400 font-medium">
+                  This token was cancelled. Please scan the shop QR code if you need assistance.
+                </p>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmLeaveOpen(true)}
+                className="text-xs font-semibold text-slate-400 hover:text-rose-600 transition-colors inline-flex items-center gap-1.5"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>{t('leaveQueueBtn')}</span>
+              </button>
             )}
           </div>
         </div>

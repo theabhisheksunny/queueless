@@ -142,3 +142,20 @@ export async function unsubscribeCustomerPush(trackingToken: string): Promise<bo
     return false;
   }
 }
+
+export async function clearActiveQueueNotifications(trackingToken?: string): Promise<void> {
+  try {
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      const registration = await navigator.serviceWorker.getRegistration();
+      if (registration) {
+        const tag = trackingToken ? `queueless-queue-${trackingToken}` : undefined;
+        const notifications = await registration.getNotifications(tag ? { tag } : undefined);
+        for (const n of notifications) {
+          n.close();
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Failed to clear notifications:', err);
+  }
+}

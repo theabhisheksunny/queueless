@@ -3,6 +3,7 @@
   "short_name": "QueueLess",
   "description": "Simple QR-Based Digital Token Register & Live Queue Tracking",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#f8fafc",

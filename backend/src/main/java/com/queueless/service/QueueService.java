@@ -412,6 +412,10 @@ public class QueueService {
                 eventPublisher.publishEvent(QueueEvent.forCustomer(
                         QueueEvent.Type.CUSTOMER_REMOVED, shopId, shopName, customer.getTrackingToken(), customer.getTokenNumber(), 0, 0
                 ));
+            } else if (newStatus == CustomerQueueStatus.NO_SHOW) {
+                eventPublisher.publishEvent(QueueEvent.forCustomer(
+                        QueueEvent.Type.CUSTOMER_NO_SHOW, shopId, shopName, customer.getTrackingToken(), customer.getTokenNumber(), 0, 0
+                ));
             }
         }
 

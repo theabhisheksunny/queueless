@@ -16,9 +16,9 @@ public interface CustomerPushSubscriptionRepository extends JpaRepository<Custom
 
     List<CustomerPushSubscription> findByCustomerTrackingToken(String trackingToken);
 
-    Optional<CustomerPushSubscription> findByEndpoint(String endpoint);
+    List<CustomerPushSubscription> findByEndpoint(String endpoint);
 
-    Optional<CustomerPushSubscription> findByCustomerTrackingTokenAndEndpoint(String trackingToken, String endpoint);
+    List<CustomerPushSubscription> findByCustomerTrackingTokenAndEndpoint(String trackingToken, String endpoint);
 
     List<CustomerPushSubscription> findByShopIdAndActiveTrue(Long shopId);
 }

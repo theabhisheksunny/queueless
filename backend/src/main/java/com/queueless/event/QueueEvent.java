@@ -9,6 +9,7 @@ public class QueueEvent {
         SERVICE_COMPLETED,
         CUSTOMER_LEFT,
         CUSTOMER_REMOVED,
+        CUSTOMER_NO_SHOW,
         POSITION_MILESTONE,
         QUEUE_CLOSED
     }

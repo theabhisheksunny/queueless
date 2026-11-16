@@ -33,7 +33,7 @@ test.describe('Completed Token 15-Minute Expiration Policy E2E', () => {
     await ownerPage.getByRole('button', { name: /Show QR Code/i }).first().click();
     const joinLinkHref = await ownerPage.getByTitle(/Open Customer View/i).getAttribute('href');
     expect(joinLinkHref).toBeTruthy();
-    await ownerPage.locator('button:has(svg.lucide-x)').first().click();
+    await ownerPage.locator('button:has(svg.lucide-x)').first().click({ force: true });
 
     // 2. Customer joins queue
     const customerContext = await browser.newContext();

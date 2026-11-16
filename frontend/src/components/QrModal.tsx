@@ -50,13 +50,14 @@ export const QrModal: React.FC<QrModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in print:p-0 print:bg-white print:static">
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-lg w-full overflow-hidden print:shadow-none print:border-none print:max-w-none print:w-full">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto bg-slate-900/60 backdrop-blur-sm animate-fade-in print:p-0 print:bg-white print:static">
+      <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-lg w-full max-h-[92vh] flex flex-col my-auto overflow-hidden print:shadow-none print:border-none print:max-w-none print:w-full">
         {/* Header - Hidden in Print */}
-        <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 print:hidden">
+        <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 flex-shrink-0 print:hidden">
           <h3 className="text-lg font-bold text-slate-900">{t('qrTitle')}</h3>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -64,7 +65,7 @@ export const QrModal: React.FC<QrModalProps> = ({
         </div>
 
         {/* Printable Placard Container */}
-        <div className="p-6 md:p-8 text-center flex flex-col items-center print:p-12">
+        <div className="p-6 md:p-8 text-center flex flex-col items-center overflow-y-auto print:p-12">
           {/* Shop Header */}
           <div className="mb-4">
             <span className="text-xs uppercase tracking-wider font-bold px-3 py-1 rounded-full bg-brand-50 text-brand-700 border border-brand-200">
@@ -111,7 +112,7 @@ export const QrModal: React.FC<QrModalProps> = ({
         </div>
 
         {/* Action Buttons - Hidden in Print */}
-        <div className="p-6 bg-slate-50 border-t border-slate-100 flex flex-wrap gap-2.5 print:hidden">
+        <div className="p-6 bg-slate-50 border-t border-slate-100 flex flex-wrap gap-2.5 flex-shrink-0 print:hidden">
           <button
             onClick={handlePrint}
             className="flex-1 min-w-[130px] inline-flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-sm shadow-md shadow-brand-500/20 transition-all"

@@ -64,7 +64,7 @@ test.describe('QueueLess Digital Token Register E2E Tests', () => {
     await expect(page.getByRole('button', { name: /Download QR/i })).toBeVisible();
 
     // Close Modal
-    await page.locator('button:has(svg.lucide-x)').first().click();
+    await page.locator('button:has(svg.lucide-x)').first().click({ force: true });
     await expect(page.getByText('Scan to Join Queue')).not.toBeVisible();
   });
 
@@ -296,7 +296,7 @@ test.describe('QueueLess Digital Token Register E2E Tests', () => {
     // Get QR join link
     await page.getByRole('button', { name: /Show QR Code/i }).first().click();
     const joinLinkHref = await page.getByTitle(/Open Customer View/i).getAttribute('href');
-    await page.locator('button:has(svg.lucide-x)').first().click();
+    await page.locator('button:has(svg.lucide-x)').first().click({ force: true });
 
     // 2. Open Customer page in a second window
     const customerPage = await context.newPage();

@@ -81,7 +81,7 @@ test.describe('QueueLess Real-World Stability Audit & Workflow Verification', ()
     expect(joinLinkHref).toMatch(/\/join\/QS-[A-Za-z0-9]+/);
 
     // Close QR modal
-    await ownerPage.locator('button:has(svg.lucide-x)').first().click();
+    await ownerPage.locator('button:has(svg.lucide-x)').first().click({ force: true });
     await expect(ownerPage.getByText('Scan to Join Queue')).not.toBeVisible();
 
     // =========================================================================

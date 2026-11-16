@@ -16,6 +16,14 @@
   "vars": {
     "BACKEND_API_URL": "https://queueless-backend-1043223278240.asia-south1.run.app"
   },
+  "env": {
+    "staging": {
+      "name": "queueless-staging",
+      "vars": {
+        "BACKEND_API_URL": "https://queueless-backend-staging-1043223278240.asia-south1.run.app"
+      }
+    }
+  },
   "observability": {
     "enabled": true
   }

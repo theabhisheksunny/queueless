@@ -6,9 +6,7 @@ import { ShieldCheck, Key, CheckCircle2, Check, X, Tag } from 'lucide-react';
 export const AdminPage: React.FC = () => {
   const { t } = useLanguage();
 
-  const [adminKey, setAdminKey] = useState(
-    () => localStorage.getItem('queueless_admin_key') || 'admin-secret-queueless-2026'
-  );
+  const [adminKey, setAdminKey] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [upiId, setUpiId] = useState('');
   const [upiName, setUpiName] = useState('');
@@ -41,7 +39,6 @@ export const AdminPage: React.FC = () => {
       setCatRequests(catReqs);
 
       setIsAuthenticated(true);
-      localStorage.setItem('queueless_admin_key', adminKey.trim());
     } catch (err: any) {
       setError(err.message || 'Invalid Admin Key');
       setIsAuthenticated(false);

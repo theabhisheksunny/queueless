@@ -87,7 +87,7 @@ public class WebPushNotificationSecurityTest {
         req.setEmail("aakash@pushshop.test");
         req.setPassword("pushPass123");
         req.setPhone("9811122233");
-        testRegistrationHelper.prepareOtp(req);
+        testRegistrationHelper.preparePin(req);
         req.setShopName("Aakash Express Cuts");
         req.setCategory("Salon & Spa");
         req.setAvgServiceDurationMinutes(10);

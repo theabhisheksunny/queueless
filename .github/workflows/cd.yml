@@ -1,0 +1,328 @@
+name: QueueLess — Continuous Delivery & Multi-Environment Deployment
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: 'Deployment Target'
+        required: true
+        default: 'staging_then_production'
+        type: choice
+        options:
+          - 'staging_then_production'
+          - 'staging_only'
+          - 'production_only'
+
+concurrency:
+  group: cd-deployment-master
+  cancel-in-progress: false # Never interrupt an active cloud deployment
+
+permissions:
+  contents: read
+
+jobs:
+  # ===================================================================
+  # Stage 1: Quality Gate & Validation on Master
+  # ===================================================================
+  ci-gate:
+    name: Master CI Validation Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify Strict Production Policies
+        run: |
+          python scripts/verify_production_policies.py
+
+      - name: Set up Java 21 (Eclipse Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Run Backend Unit & Security Tests
+        run: |
+          mvn -f backend/pom.xml clean test
+
+      - name: Package Backend Application JAR
+        run: |
+          mvn -f backend/pom.xml package -DskipTests
+
+      - name: Set up Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Frontend Linter & Typecheck
+        run: |
+          npm --prefix frontend run lint
+          npm --prefix frontend run build
+
+      - name: Install Playwright Chromium with System Dependencies
+        run: |
+          cd frontend
+          npx playwright install --with-deps chromium
+
+      - name: Start Spring Boot Local Backend in Background
+        run: |
+          java -jar backend/target/queueless-backend-1.0.0.jar &
+
+      - name: Wait for Backend Health Check
+        run: |
+          for i in {1..30}; do
+            if curl -s http://localhost:8080/actuator/health | grep -q "UP"; then
+              echo "Backend health check UP on attempt $i!"
+              exit 0
+            fi
+            echo "Waiting for backend startup (attempt $i/30)..."
+            sleep 2
+          done
+          echo "Backend failed to start within 60 seconds."
+          exit 1
+
+      - name: Execute Playwright E2E Suite (25 Tests)
+        run: |
+          cd frontend
+          npx playwright test
+
+  # ===================================================================
+  # Stage 2: Immutable Artifact Creation (Build Once, Promote Everywhere)
+  # ===================================================================
+  build-and-push-artifacts:
+    name: Build & Publish Immutable Artifacts
+    runs-on: ubuntu-latest
+    needs: [ci-gate]
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 20
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      short_sha: ${{ steps.meta.outputs.short_sha }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Compute Short Commit SHA
+        id: meta
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+          IMAGE_URI="asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless/queueless-backend:${{ github.sha }}"
+          echo "image_tag=$IMAGE_URI" >> $GITHUB_OUTPUT
+
+      - name: Authenticate to Google Cloud via Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Google Artifact Registry
+        run: |
+          gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+
+      - name: Build Immutable Backend Docker Image
+        run: |
+          docker build \
+            --tag "asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless/queueless-backend:${{ github.sha }}" \
+            --tag "asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless/queueless-backend:sha-${{ steps.meta.outputs.short_sha }}" \
+            -f Dockerfile .
+
+      - name: Push Immutable Container Image to Artifact Registry
+        run: |
+          docker push "asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless/queueless-backend:${{ github.sha }}"
+          docker push "asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless/queueless-backend:sha-${{ steps.meta.outputs.short_sha }}"
+
+      - name: Set up Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Build Production Frontend Assets
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Generate Release Manifest Metadata
+        run: |
+          cat <<EOF > release-metadata.json
+          {
+            "commit_sha": "${{ github.sha }}",
+            "short_sha": "${{ steps.meta.outputs.short_sha }}",
+            "branch": "${{ github.ref_name }}",
+            "author": "${{ github.actor }}",
+            "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+            "backend_image": "asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless/queueless-backend:${{ github.sha }}"
+          }
+          EOF
+
+      - name: Archive Frontend Dist Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist-artifact
+          path: frontend/dist/
+          retention-days: 14
+
+      - name: Archive Release Metadata Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-metadata
+          path: release-metadata.json
+          retention-days: 14
+
+  # ===================================================================
+  # Stage 3: Staging Deployment & Automated Smoke Tests
+  # ===================================================================
+  deploy-staging:
+    name: Deploy to Staging Environment
+    runs-on: ubuntu-latest
+    needs: [build-and-push-artifacts]
+    if: inputs.target_env != 'production_only'
+    environment:
+      name: staging
+      url: https://queueless-staging.theabhisheksunny.workers.dev
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download Frontend Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist-artifact
+          path: frontend/dist/
+
+      - name: Validate Downloaded Frontend Artifact Layout
+        run: |
+          test -f frontend/dist/index.html || { echo "ERROR: frontend/dist/index.html missing!"; exit 1; }
+
+      - name: Authenticate to Google Cloud via Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Deploy Backend to Cloud Run Staging
+        run: |
+          gcloud run deploy queueless-backend-staging \
+            --image="${{ needs.build-and-push-artifacts.outputs.image_tag }}" \
+            --region=asia-south1 \
+            --platform=managed \
+            --allow-unauthenticated \
+            --min-instances=0 \
+            --max-instances=1 \
+            --cpu=1 \
+            --memory=1Gi \
+            --set-env-vars="SPRING_PROFILES_ACTIVE=prod" \
+            --set-secrets="SPRING_DATASOURCE_URL=QUEUELESS_STAGING_DB_URL:latest,APP_JWT_SECRET=QUEUELESS_STAGING_JWT_SECRET:latest,APP_ADMIN_KEY=QUEUELESS_STAGING_ADMIN_KEY:latest"
+
+      - name: Deploy Frontend to Cloudflare Workers Staging
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: deploy --env staging --no-build
+
+      - name: Set up Python for Smoke Testing
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run Automated Post-Deployment Staging Smoke Tests
+        run: |
+          python scripts/smoke_test.py https://queueless-staging.theabhisheksunny.workers.dev
+
+  # ===================================================================
+  # Stage 4: Production Deployment — MANUAL APPROVAL ONLY
+  # ===================================================================
+  deploy-production:
+    name: Deploy to Production (Manual Approval Gate)
+    runs-on: ubuntu-latest
+    needs: [build-and-push-artifacts, deploy-staging]
+    if: |
+      always() &&
+      needs.build-and-push-artifacts.result == 'success' &&
+      inputs.target_env != 'staging_only' &&
+      (needs.deploy-staging.result == 'success' || inputs.target_env == 'production_only')
+    environment:
+      name: production
+      url: https://queueless.theabhisheksunny.workers.dev
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download Frontend Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist-artifact
+          path: frontend/dist/
+
+      - name: Validate Downloaded Frontend Artifact Layout
+        run: |
+          test -f frontend/dist/index.html || { echo "ERROR: frontend/dist/index.html missing!"; exit 1; }
+
+      - name: Authenticate to Google Cloud via Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Deploy Immutable Image to Cloud Run Production
+        run: |
+          gcloud run deploy queueless-backend \
+            --image="${{ needs.build-and-push-artifacts.outputs.image_tag }}" \
+            --region=asia-south1 \
+            --platform=managed \
+            --allow-unauthenticated \
+            --min-instances=0 \
+            --max-instances=1 \
+            --cpu=1 \
+            --memory=1Gi \
+            --set-env-vars="SPRING_PROFILES_ACTIVE=prod" \
+            --set-secrets="SPRING_DATASOURCE_URL=QUEUELESS_PROD_DB_URL:latest,APP_JWT_SECRET=QUEUELESS_PROD_JWT_SECRET:latest,APP_ADMIN_KEY=QUEUELESS_PROD_ADMIN_KEY:latest"
+
+      - name: Deploy Frontend to Cloudflare Workers Production
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: deploy --no-build
+
+      - name: Set up Python for Smoke Testing
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run Automated Post-Deployment Production Smoke Tests
+        run: |
+          python scripts/smoke_test.py https://queueless.theabhisheksunny.workers.dev

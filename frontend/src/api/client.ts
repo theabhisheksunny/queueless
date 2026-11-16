@@ -189,8 +189,6 @@ export const api = {
     request<any>('/api/auth/login', { method: 'POST', body: JSON.stringify({ phone, pin, deviceFingerprint }) }),
   resetPin: (data: { phone: string; currentPin?: string; newPin: string; confirmPin: string; deviceFingerprint?: string }) =>
     request<any>('/api/auth/reset-pin', { method: 'POST', body: JSON.stringify(data) }),
-  resetPassword: (data: { phone: string; currentPassword?: string; newPassword: string }) =>
-    request<any>('/api/auth/reset-password', { method: 'POST', body: JSON.stringify(data) }),
   deleteAccount: () => request<any>('/api/owner/account', { method: 'DELETE' }),
 
   // Owner Queue Dashboard
@@ -260,6 +258,8 @@ export const api = {
     request<any>(`/api/admin/category-requests/${id}/approve`, { method: 'POST', headers: { 'X-Admin-Key': adminKey } }),
   rejectAdminCategoryChange: (adminKey: string, id: number, reason: string) =>
     request<any>(`/api/admin/category-requests/${id}/reject`, { method: 'POST', headers: { 'X-Admin-Key': adminKey }, body: JSON.stringify({ reason }) }),
+  adminResetPin: (adminKey: string, phone: string, newPin: string) =>
+    request<any>('/api/admin/reset-owner-pin', { method: 'POST', headers: { 'X-Admin-Key': adminKey }, body: JSON.stringify({ phone, newPin }) }),
 
   // SSE Stream URLs
   getOwnerSseUrl: () => {

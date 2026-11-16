@@ -210,7 +210,7 @@ export const translations = {
     // Admin
     adminTitle: 'Minimal Admin Control',
     adminKeyLabel: 'Administrator Secret Key',
-    adminKeyPlaceholder: 'Enter admin key (default: admin-secret-queueless-2026)',
+    adminKeyPlaceholder: 'Enter administrator secret key',
     adminVerifyBtn: 'Access Admin Panel',
     configUpiHeading: 'Configure Subscription UPI ID',
     merchantName: 'Merchant / Payee Name',

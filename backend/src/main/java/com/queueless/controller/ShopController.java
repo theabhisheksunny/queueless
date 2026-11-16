@@ -2,9 +2,7 @@ package com.queueless.controller;
 
 import com.queueless.dto.ShopSettingsRequest;
 import com.queueless.entity.Shop;
-import com.queueless.entity.User;
-import com.queueless.repository.ShopRepository;
-import com.queueless.repository.UserRepository;
+import com.queueless.service.AuthenticatedShopResolver;
 import com.queueless.service.EntitlementService;
 import com.queueless.service.ShopService;
 import jakarta.validation.Valid;
@@ -18,30 +16,20 @@ import java.security.Principal;
 public class ShopController {
 
     private final ShopService shopService;
-    private final UserRepository userRepository;
-    private final ShopRepository shopRepository;
+    private final AuthenticatedShopResolver shopResolver;
     private final EntitlementService entitlementService;
 
     public ShopController(ShopService shopService,
-                          UserRepository userRepository,
-                          ShopRepository shopRepository,
+                          AuthenticatedShopResolver shopResolver,
                           EntitlementService entitlementService) {
         this.shopService = shopService;
-        this.userRepository = userRepository;
-        this.shopRepository = shopRepository;
+        this.shopResolver = shopResolver;
         this.entitlementService = entitlementService;
-    }
-
-    private Shop getShopFromPrincipal(Principal principal) {
-        User user = userRepository.findByIdentifier(principal.getName())
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + principal.getName()));
-        return shopRepository.findByOwnerId(user.getId())
-                .orElseThrow(() -> new IllegalArgumentException("No shop found for user: " + principal.getName()));
     }
 
     @GetMapping
     public ResponseEntity<Shop> getSettings(Principal principal) {
-        Shop shop = getShopFromPrincipal(principal);
+        Shop shop = shopResolver.resolveShop(principal);
         entitlementService.requireActiveEntitlement(shop.getId());
         return ResponseEntity.ok(shopService.getShop(shop.getId()));
     }
@@ -50,7 +38,7 @@ public class ShopController {
     public ResponseEntity<Shop> updateSettings(
             Principal principal,
             @Valid @RequestBody ShopSettingsRequest request) {
-        Shop shop = getShopFromPrincipal(principal);
+        Shop shop = shopResolver.resolveShop(principal);
         entitlementService.requireActiveEntitlement(shop.getId());
         Shop updated = shopService.updateShopSettings(shop.getId(), request);
         return ResponseEntity.ok(updated);

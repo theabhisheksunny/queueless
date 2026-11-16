@@ -74,7 +74,7 @@ public class TokenExpirationPolicyTest {
         registerReq.setEmail("barber_" + System.currentTimeMillis() + "@queueless.com");
         registerReq.setPassword("password123");
         registerReq.setPhone("98" + (10000000 + (int)(Math.random() * 89999999)));
-        testRegistrationHelper.prepareOtp(registerReq);
+        testRegistrationHelper.preparePin(registerReq);
         registerReq.setShopName("Precision Hair Studio");
         registerReq.setCategory("Salon");
         registerReq.setAvgServiceDurationMinutes(15);

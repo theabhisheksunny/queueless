@@ -1,0 +1,71 @@
+# QueueLess — Production Release Checklist
+
+This checklist must be reviewed and executed for every production deployment of **QueueLess**.
+
+---
+
+## 1. Pre-Release Verification (Before Approving GitHub Environment)
+
+- [ ] **Clean CI Execution**:
+  - [ ] All 59 backend unit and security tests passed.
+  - [ ] Frontend TypeScript compilation and Vite build passed without errors.
+  - [ ] All 25 Playwright End-to-End browser tests passed.
+  - [ ] Pre-flight policy script passed all 7 checks (`python scripts/verify_production_policies.py`).
+  - [ ] Container image Trivy vulnerability scan checked (no unresolved `CRITICAL` CVEs).
+
+- [ ] **Artifact Verification**:
+  - [ ] Container image successfully built and tagged with commit SHA: `asia-south1-docker.pkg.dev/.../queueless-backend:${COMMIT_SHA}`.
+  - [ ] Release metadata manifest generated (`release-metadata.json`).
+
+- [ ] **Staging Sign-Off**:
+  - [ ] Staging Cloud Run service (`queueless-backend-staging`) successfully updated.
+  - [ ] Staging Cloudflare Worker (`queueless-staging`) deployed.
+  - [ ] Automated smoke test suite passed on staging (`python scripts/smoke_test.py https://queueless-staging...`).
+  - [ ] No regression observed in core business workflows (QR generation, token issuance, PIN login).
+
+- [ ] **Database Migration Review**:
+  - [ ] Check if new Flyway migrations (`V...sql`) are introduced.
+  - [ ] Confirm migrations are backwards-compatible (e.g. `ADD COLUMN IF NOT EXISTS`, nullable fields).
+  - [ ] Confirm no destructive `DROP TABLE` or `ALTER COLUMN TYPE` operations impact existing active shop queues.
+
+---
+
+## 2. Production Deployment (Manual Approval Gate)
+
+- [ ] Navigate to the GitHub Actions run for `QueueLess — Continuous Delivery & Multi-Environment Deployment`.
+- [ ] Inspect the `Deploy to Production` job waiting in `Review pending deployments`.
+- [ ] Confirm the deployment target is `master` at the verified commit SHA.
+- [ ] Click **Approve and deploy**.
+
+---
+
+## 3. Post-Deployment Verification (Immediate Health Checks)
+
+- [ ] **Automated Smoke Test Verification**:
+  - [ ] Confirm the automated `Run Automated Post-Deployment Production Smoke Tests` step in GitHub Actions completed with code 0.
+- [ ] **Manual Edge Probe**:
+  - [ ] Open `https://queueless.theabhisheksunny.workers.dev/` in an incognito window.
+  - [ ] Confirm page loads within 1 second.
+  - [ ] Navigate to `/login` and confirm PIN login screen appears.
+  - [ ] Probed `/actuator/health` returns `{"status":"UP"}`.
+  - [ ] Probed `/api/public/queue/vapid-public-key` returns valid VAPID JSON.
+- [ ] **Live Queue Smoke Check**:
+  - [ ] Log in with a verified shop owner account.
+  - [ ] Open shop dashboard.
+  - [ ] Verify active queue status and token counter.
+  - [ ] Test public customer QR link in mobile browser.
+
+---
+
+## 4. Post-Release Monitoring (First 60 Minutes)
+
+- [ ] **Cloud Run Metrics** (GCP Console):
+  - [ ] CPU and Memory utilization remain under 60%.
+  - [ ] Instance count stabilizes at expected traffic level (0 to 3 instances).
+  - [ ] Request latency 95th percentile under 300ms.
+  - [ ] 5xx error rate is 0.0%.
+- [ ] **Cloudflare Observability**:
+  - [ ] Edge status codes remain 200/304 for assets and 200/401 for API.
+  - [ ] No SSL/TLS handshake failures.
+- [ ] **Database Pooler (Supabase)**:
+  - [ ] Active connections remain well within pooler limit (<= 15 connections).

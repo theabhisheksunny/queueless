@@ -3,17 +3,22 @@ package com.queueless.controller;
 import com.queueless.dto.*;
 import com.queueless.service.CategoryChangeService;
 import com.queueless.service.SubscriptionService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/admin")
 public class AdminController {
+
+    private static final Logger log = LoggerFactory.getLogger(AdminController.class);
 
     private final SubscriptionService subscriptionService;
     private final CategoryChangeService categoryChangeService;
@@ -33,8 +38,19 @@ public class AdminController {
     private void verifyAdminAccess(String headerKey) {
         // Can be verified via X-Admin-Key or Spring Security ROLE_ADMIN
         if (headerKey == null || !headerKey.equals(adminKey)) {
+            log.warn("AUDIT: Unauthorized admin access attempt detected - keyPresent: {}, timestamp: {}",
+                    (headerKey != null && !headerKey.isBlank()), Instant.now());
             throw new org.springframework.security.access.AccessDeniedException("Invalid Admin Key");
         }
+    }
+
+    private String maskPhone(String phone) {
+        if (phone == null || phone.isBlank()) return "null";
+        String clean = phone.trim();
+        if (clean.length() <= 4) {
+            return "****";
+        }
+        return clean.substring(0, clean.length() - 4).replaceAll(".", "*") + clean.substring(clean.length() - 4);
     }
 
     @GetMapping("/config")
@@ -104,9 +120,17 @@ public class AdminController {
             @RequestHeader(value = "X-Admin-Key", required = false) String key,
             @RequestBody Map<String, String> body) {
         verifyAdminAccess(key);
-        String phone = body.get("phone");
-        String newPin = body.get("newPin");
-        authService.adminResetPin(phone, newPin);
-        return ResponseEntity.ok(Map.of("message", "Owner PIN successfully reset by administrator."));
+        String phone = body != null ? body.get("phone") : null;
+        String newPin = body != null ? body.get("newPin") : null;
+        try {
+            Long targetOwnerId = authService.adminResetPin(phone, newPin);
+            log.info("AUDIT: Admin PIN reset SUCCESS - adminIdentity: X-Admin-Key, targetOwnerId: {}, targetPhone: {}, timestamp: {}",
+                    targetOwnerId, maskPhone(phone), Instant.now());
+            return ResponseEntity.ok(Map.of("message", "Owner PIN successfully reset by administrator."));
+        } catch (Exception e) {
+            log.warn("AUDIT: Admin PIN reset FAILED - adminIdentity: X-Admin-Key, targetPhone: {}, reason: {}, timestamp: {}",
+                    maskPhone(phone), e.getMessage(), Instant.now());
+            throw e;
+        }
     }
 }

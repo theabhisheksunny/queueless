@@ -42,7 +42,7 @@ public class QueueControllerIntegrationTest {
         registerReq.setEmail(uniqueEmail);
         registerReq.setPassword("password123");
         registerReq.setPhone(uniquePhone);
-        testRegistrationHelper.prepareOtp(registerReq);
+        testRegistrationHelper.preparePin(registerReq);
         registerReq.setShopName("Elite Barber & Spa");
         registerReq.setCategory("Barber Shop");
         registerReq.setAvgServiceDurationMinutes(12);

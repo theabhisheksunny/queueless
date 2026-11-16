@@ -39,7 +39,7 @@ public class ActiveQueueConcurrencyTest {
         registerReq.setEmail("concurrency" + System.currentTimeMillis() + "@test.com");
         registerReq.setPassword("password123");
         registerReq.setPhone("9876543299");
-        testRegistrationHelper.prepareOtp(registerReq);
+        testRegistrationHelper.preparePin(registerReq);
         registerReq.setShopName("High Volume Barber Clinic");
         registerReq.setCategory("Barber");
         registerReq.setAvgServiceDurationMinutes(10);

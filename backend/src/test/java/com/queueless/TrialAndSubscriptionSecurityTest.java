@@ -85,7 +85,7 @@ class TrialAndSubscriptionSecurityTest {
         req1.setEmail("aakash_" + System.currentTimeMillis() + "@test.com");
         req1.setPassword("secretPass1");
         req1.setPhone("98111" + (10000 + (int)(Math.random() * 89999)));
-        testRegistrationHelper.prepareOtp(req1);
+        testRegistrationHelper.preparePin(req1);
         req1.setShopName(sharedShopName); // Identical shop name
         req1.setCategory("Salon & Spa");
         var auth1 = authService.register(req1);
@@ -97,7 +97,7 @@ class TrialAndSubscriptionSecurityTest {
         req2.setEmail("deepak_" + System.currentTimeMillis() + "@test.com");
         req2.setPassword("secretPass2");
         req2.setPhone("98222" + (10000 + (int)(Math.random() * 89999)));
-        testRegistrationHelper.prepareOtp(req2);
+        testRegistrationHelper.preparePin(req2);
         req2.setShopName(sharedShopName); // Identical shop name
         req2.setCategory("Salon & Spa");
         var auth2 = authService.register(req2);
@@ -157,7 +157,7 @@ class TrialAndSubscriptionSecurityTest {
         firstReq.setEmail("orig_" + System.currentTimeMillis() + "@test.com");
         firstReq.setPassword("password123");
         firstReq.setPhone(testPhone);
-        testRegistrationHelper.prepareOtp(firstReq);
+        testRegistrationHelper.preparePin(firstReq);
         firstReq.setShopName("Original Shop");
         firstReq.setDeviceFingerprint("device-fingerprint-desktop-chrome");
         var authRes = authService.register(firstReq);
@@ -214,7 +214,7 @@ class TrialAndSubscriptionSecurityTest {
         req.setEmail(email);
         req.setPassword("pass1234");
         req.setPhone(testPhone);
-        testRegistrationHelper.prepareOtp(req);
+        testRegistrationHelper.preparePin(req);
         req.setShopName("Temporary Clinic");
         authService.register(req);
 
@@ -257,7 +257,7 @@ class TrialAndSubscriptionSecurityTest {
         req.setPin("123456");
         req.setConfirmPin("123456");
         req.setPhone(testPhone);
-        testRegistrationHelper.prepareOtp(req);
+        testRegistrationHelper.preparePin(req);
         req.setShopName("Secure Clinic");
         var authRes = authService.register(req);
         Long shopId = authRes.getShopId();
@@ -346,7 +346,7 @@ class TrialAndSubscriptionSecurityTest {
         req.setEmail(email);
         req.setPassword("pass123");
         req.setPhone(phone);
-        testRegistrationHelper.prepareOtp(req);
+        testRegistrationHelper.preparePin(req);
         req.setShopName("Boundary Salon");
         var authRes = authService.register(req);
         Long shopId = authRes.getShopId();
@@ -406,7 +406,7 @@ class TrialAndSubscriptionSecurityTest {
         req.setEmail(email);
         req.setPassword("pass123");
         req.setPhone(phone);
-        testRegistrationHelper.prepareOtp(req);
+        testRegistrationHelper.preparePin(req);
         req.setShopName("Paid Salon");
         var authRes = authService.register(req);
         Long shopId = authRes.getShopId();

@@ -46,7 +46,7 @@ public class QueueServiceTest {
         registerReq.setEmail("testowner" + System.currentTimeMillis() + "@test.com");
         registerReq.setPassword("password123");
         registerReq.setPhone("9998887776");
-        testRegistrationHelper.prepareOtp(registerReq);
+        testRegistrationHelper.preparePin(registerReq);
         registerReq.setShopName("Aesthetic Hair Salon");
         registerReq.setCategory("Salon");
         registerReq.setAvgServiceDurationMinutes(15);

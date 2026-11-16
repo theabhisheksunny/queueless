@@ -3,9 +3,7 @@ package com.queueless.controller;
 import com.queueless.dto.SubscriptionPaymentSubmitRequest;
 import com.queueless.dto.SubscriptionStatusResponse;
 import com.queueless.entity.Shop;
-import com.queueless.entity.User;
-import com.queueless.repository.ShopRepository;
-import com.queueless.repository.UserRepository;
+import com.queueless.service.AuthenticatedShopResolver;
 import com.queueless.service.SubscriptionService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -18,27 +16,17 @@ import java.security.Principal;
 public class SubscriptionController {
 
     private final SubscriptionService subscriptionService;
-    private final UserRepository userRepository;
-    private final ShopRepository shopRepository;
+    private final AuthenticatedShopResolver shopResolver;
 
     public SubscriptionController(SubscriptionService subscriptionService,
-                                  UserRepository userRepository,
-                                  ShopRepository shopRepository) {
+                                  AuthenticatedShopResolver shopResolver) {
         this.subscriptionService = subscriptionService;
-        this.userRepository = userRepository;
-        this.shopRepository = shopRepository;
-    }
-
-    private Shop getShopFromPrincipal(Principal principal) {
-        User user = userRepository.findByIdentifier(principal.getName())
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + principal.getName()));
-        return shopRepository.findByOwnerId(user.getId())
-                .orElseThrow(() -> new IllegalArgumentException("No shop found for user: " + principal.getName()));
+        this.shopResolver = shopResolver;
     }
 
     @GetMapping({"", "/status"})
     public ResponseEntity<SubscriptionStatusResponse> getStatus(Principal principal) {
-        Shop shop = getShopFromPrincipal(principal);
+        Shop shop = shopResolver.resolveShop(principal);
         return ResponseEntity.ok(subscriptionService.getShopSubscriptionStatus(shop.getId()));
     }
 
@@ -46,7 +34,7 @@ public class SubscriptionController {
     public ResponseEntity<SubscriptionStatusResponse> submitPayment(
             Principal principal,
             @Valid @RequestBody SubscriptionPaymentSubmitRequest request) {
-        Shop shop = getShopFromPrincipal(principal);
+        Shop shop = shopResolver.resolveShop(principal);
         return ResponseEntity.ok(subscriptionService.submitPayment(shop.getId(), request));
     }
 }

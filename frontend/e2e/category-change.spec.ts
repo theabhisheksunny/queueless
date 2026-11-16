@@ -86,6 +86,7 @@ test.describe('Lock Business Category & ₹101 Category Change Fee E2E Tests', (
     const adminPage = await adminContext.newPage();
 
     await adminPage.goto('/admin');
+    await adminPage.locator('input[type="password"]').fill('admin-secret-queueless-2026');
     await adminPage.getByRole('button', { name: /Access Admin Panel|प्रवेश करें/i }).click();
 
     await expect(adminPage.getByText(/Category Change Requests \(₹101\)/i)).toBeVisible();
@@ -154,6 +155,7 @@ test.describe('Lock Business Category & ₹101 Category Change Fee E2E Tests', (
     });
 
     await adminPage.goto('/admin');
+    await adminPage.locator('input[type="password"]').fill('admin-secret-queueless-2026');
     await adminPage.getByRole('button', { name: /Access Admin Panel|प्रवेश करें/i }).click();
 
     await expect(adminPage.getByText(shopName).first()).toBeVisible();

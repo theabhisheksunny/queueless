@@ -1,0 +1,241 @@
+name: QueueLess — Continuous Integration & Security Quality Gates
+
+on:
+  pull_request:
+    branches: [master, main]
+  push:
+    branches:
+      - '**'
+      - '!master'
+      - '!main'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ===================================================================
+  # Job 1: Pre-flight Policy & Security Verification
+  # ===================================================================
+  security-policy-audit:
+    name: Security & Production Policies Pre-Flight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify Strict Production Policies
+        run: |
+          python scripts/verify_production_policies.py
+
+      - name: Secret Scanning with Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+  # ===================================================================
+  # Job 2: Backend CI (Java 21, Maven, Security Tests)
+  # ===================================================================
+  backend-ci:
+    name: Backend CI (Java 21 + Spring Boot + Security Tests)
+    runs-on: ubuntu-latest
+    needs: [security-policy-audit]
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21 (Eclipse Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Maven Dependency Vulnerability Scan (Trivy FS)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: 'backend'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Run Backend Unit & Security Tests
+        run: |
+          mvn -f backend/pom.xml clean test
+
+      - name: Package Backend Application JAR
+        run: |
+          mvn -f backend/pom.xml package -DskipTests
+
+      - name: Upload Backend Test Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-surefire-reports
+          path: backend/target/surefire-reports/
+          retention-days: 7
+
+      - name: Archive Built Application JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: queueless-backend-jar
+          path: backend/target/queueless-backend-1.0.0.jar
+          retention-days: 7
+
+  # ===================================================================
+  # Job 3: Frontend CI (Node 20, TypeScript, Oxlint, Vite Build)
+  # ===================================================================
+  frontend-ci:
+    name: Frontend CI (Node 20 + TypeScript + Oxlint + Vite Build)
+    runs-on: ubuntu-latest
+    needs: [security-policy-audit]
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Install Frontend Dependencies (npm ci)
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run Frontend Linter (Oxlint)
+        run: |
+          npm --prefix frontend run lint
+
+      - name: Build Frontend & Typecheck (tsc -b && vite build)
+        run: |
+          npm --prefix frontend run build
+
+      - name: Check Unused Frontend Dependencies
+        run: |
+          npx depcheck frontend --ignores="@types/*,autoprefixer,postcss,tailwindcss,@vitejs/*" || true
+
+      - name: Archive Built Frontend Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: queueless-frontend-dist
+          path: frontend/dist/
+          retention-days: 7
+
+  # ===================================================================
+  # Job 4: End-to-End Integration Tests (Playwright)
+  # ===================================================================
+  e2e-playwright-tests:
+    name: Full-Stack E2E Integration Tests (Playwright)
+    runs-on: ubuntu-latest
+    needs: [backend-ci, frontend-ci]
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Download Built Backend JAR
+        uses: actions/download-artifact@v4
+        with:
+          name: queueless-backend-jar
+          path: backend/target/
+
+      - name: Download Built Frontend Assets
+        uses: actions/download-artifact@v4
+        with:
+          name: queueless-frontend-dist
+          path: frontend/dist/
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Install Playwright Chromium with System Dependencies
+        run: |
+          cd frontend
+          npx playwright install --with-deps chromium
+
+      - name: Start Spring Boot Local Backend in Background
+        run: |
+          java -jar backend/target/queueless-backend-1.0.0.jar &
+          echo "SPRING_PID=$!" >> $GITHUB_ENV
+
+      - name: Wait for Backend Health Check
+        run: |
+          for i in {1..30}; do
+            if curl -s http://localhost:8080/actuator/health | grep -q "UP"; then
+              echo "Backend health check UP on attempt $i!"
+              exit 0
+            fi
+            echo "Waiting for backend startup (attempt $i/30)..."
+            sleep 2
+          done
+          echo "Backend failed to start within 60 seconds."
+          exit 1
+
+      - name: Execute Playwright E2E Suite (25 Tests)
+        run: |
+          cd frontend
+          npx playwright test
+
+      - name: Upload Playwright Test Results & Traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
+
+  # ===================================================================
+  # Job 5: Container Security & Vulnerability Scan (Trivy)
+  # ===================================================================
+  container-security-scan:
+    name: Container Image Security Scan (Trivy)
+    runs-on: ubuntu-latest
+    needs: [backend-ci, frontend-ci]
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build Container Image Locally
+        run: |
+          docker build -t queueless-backend:${{ github.sha }} -f Dockerfile .
+
+      - name: Scan Container Image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'queueless-backend:${{ github.sha }}'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'

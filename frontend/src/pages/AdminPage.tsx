@@ -196,7 +196,7 @@ export const AdminPage: React.FC = () => {
                     required
                     value={upiId}
                     onChange={(e) => setUpiId(e.target.value)}
-                    placeholder="e.g. queueless@upi"
+                    placeholder="e.g. absunny@ybl"
                     className="w-full px-4 py-2.5 rounded-2xl border border-slate-200 focus:border-brand-500 outline-none text-slate-900 text-sm font-semibold font-mono"
                   />
                 </div>

@@ -49,13 +49,19 @@ public class QueueLessApplication {
     @Bean
     public CommandLineRunner initApplicationSettings(ApplicationSettingRepository settingRepo) {
         return args -> {
-            if (settingRepo.findBySettingKey(SubscriptionService.KEY_UPI_ID).isEmpty()) {
-                settingRepo.save(new ApplicationSetting(
-                        SubscriptionService.KEY_UPI_ID,
-                        SubscriptionService.DEFAULT_UPI_ID,
-                        "Subscription UPI ID for direct payment"
-                ));
-            }
+            settingRepo.findBySettingKey(SubscriptionService.KEY_UPI_ID).ifPresentOrElse(
+                    setting -> {
+                        if ("queueless@upi".equals(setting.getSettingValue())) {
+                            setting.setSettingValue(SubscriptionService.DEFAULT_UPI_ID);
+                            settingRepo.save(setting);
+                        }
+                    },
+                    () -> settingRepo.save(new ApplicationSetting(
+                            SubscriptionService.KEY_UPI_ID,
+                            SubscriptionService.DEFAULT_UPI_ID,
+                            "Subscription UPI ID for direct payment"
+                    ))
+            );
             if (settingRepo.findBySettingKey(SubscriptionService.KEY_UPI_NAME).isEmpty()) {
                 settingRepo.save(new ApplicationSetting(
                         SubscriptionService.KEY_UPI_NAME,

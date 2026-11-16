@@ -447,4 +447,29 @@ class TrialAndSubscriptionSecurityTest {
                 .andExpect(status().isPaymentRequired())
                 .andExpect(jsonPath("$.code").value("SUBSCRIPTION_REQUIRED"));
     }
+
+    @Test
+    @DisplayName("17. Subscription UPI Configuration: Default UPI ID is absunny@ybl and returned in subscription status")
+    void testSubscriptionDefaultUpiIdIsUpdated() throws Exception {
+        assertThat(SubscriptionService.DEFAULT_UPI_ID).isEqualTo("absunny@ybl");
+        assertThat(subscriptionService.getConfiguredUpiId()).isEqualTo("absunny@ybl");
+
+        RegisterRequest req = new RegisterRequest();
+        req.setFullName("UPI Test Owner");
+        req.setEmail("upitest_" + System.currentTimeMillis() + "@test.com");
+        req.setPassword("secretPass123");
+        req.setPhone("98" + (10000000 + (int)(Math.random() * 89999999)));
+        testRegistrationHelper.preparePin(req);
+        req.setShopName("UPI Test Shop");
+        req.setCategory("Salon & Spa");
+        var auth = authService.register(req);
+        String token = auth.getToken();
+
+        mockMvc.perform(get("/api/owner/subscription/status")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.configuredUpiId").value("absunny@ybl"))
+                .andExpect(jsonPath("$.monthlyPrice").value(51.00))
+                .andExpect(jsonPath("$.yearlyPrice").value(501.00));
+    }
 }

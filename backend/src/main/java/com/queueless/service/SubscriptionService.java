@@ -26,7 +26,7 @@ public class SubscriptionService {
 
     public static final BigDecimal DEFAULT_MONTHLY_PRICE = new BigDecimal("51.00");
     public static final BigDecimal DEFAULT_YEARLY_PRICE = new BigDecimal("501.00");
-    public static final String DEFAULT_UPI_ID = "queueless@upi";
+    public static final String DEFAULT_UPI_ID = "absunny@ybl";
     public static final String DEFAULT_UPI_NAME = "QueueLess Token System";
 
     private final SubscriptionRepository subscriptionRepository;

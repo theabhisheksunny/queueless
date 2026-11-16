@@ -265,7 +265,7 @@ export const DashboardPage: React.FC = () => {
 
   if (isSubscriptionExpired) {
     const currentPrice = selectedPlan === 'YEARLY' ? subData?.yearlyPrice || 501 : subData?.monthlyPrice || 51;
-    const upiId = subData?.configuredUpiId || 'queueless@upi';
+    const upiId = subData?.configuredUpiId || 'absunny@ybl';
     const payeeName = subData?.configuredUpiName || 'QueueLess Token System';
     const upiDeepLink = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(
       payeeName

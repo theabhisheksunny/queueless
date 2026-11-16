@@ -289,6 +289,9 @@ public class WebPushNotificationSecurityTest {
         assertTrue(closePayload.contains("queueless-queue-" + trackingToken));
 
         // Verify subscription record is deactivated in database
+        for (int i = 0; i < 20 && !pushSubscriptionRepository.findByCustomerTrackingTokenAndActiveTrue(trackingToken).isEmpty(); i++) {
+            Thread.sleep(50);
+        }
         List<CustomerPushSubscription> activeSubs = pushSubscriptionRepository.findByCustomerTrackingTokenAndActiveTrue(trackingToken);
         assertTrue(activeSubs.isEmpty());
     }

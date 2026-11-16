@@ -104,7 +104,7 @@ export const SettingsPage: React.FC = () => {
   };
 
   const handleCopyUpi = () => {
-    const upi = catChangeStatus?.upiId || 'queueless@upi';
+    const upi = catChangeStatus?.upiId || 'absunny@ybl';
     navigator.clipboard.writeText(upi);
     setCopiedUpi(true);
     setTimeout(() => setCopiedUpi(false), 2000);
@@ -398,7 +398,7 @@ export const SettingsPage: React.FC = () => {
                         Platform UPI ID
                       </span>
                       <span className="text-sm font-mono font-bold text-slate-800">
-                        {catChangeStatus?.upiId || 'queueless@upi'}
+                        {catChangeStatus?.upiId || 'absunny@ybl'}
                       </span>
                     </div>
                     <button
@@ -416,7 +416,7 @@ export const SettingsPage: React.FC = () => {
                       <QRCodeSVG
                         value={
                           catChangeStatus?.qrPayload ||
-                          `upi://pay?pa=${catChangeStatus?.upiId || 'queueless@upi'}&pn=QueueLess&am=101.00&cu=INR&tn=CategoryChange`
+                          `upi://pay?pa=${catChangeStatus?.upiId || 'absunny@ybl'}&pn=QueueLess&am=101.00&cu=INR&tn=CategoryChange`
                         }
                         size={130}
                         level="M"

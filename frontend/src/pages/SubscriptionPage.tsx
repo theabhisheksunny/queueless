@@ -87,7 +87,7 @@ export const SubscriptionPage: React.FC = () => {
       ? subData?.yearlyPrice || 501
       : subData?.monthlyPrice || 51;
 
-  const upiId = subData?.configuredUpiId || 'queueless@upi';
+  const upiId = subData?.configuredUpiId || 'absunny@ybl';
   const payeeName = subData?.configuredUpiName || 'QueueLess Token System';
 
   // Dynamic UPI Payment Deep-Link

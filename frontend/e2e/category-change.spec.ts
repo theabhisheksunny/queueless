@@ -58,7 +58,7 @@ test.describe('Lock Business Category & ₹101 Category Change Fee E2E Tests', (
 
     await expect(page.getByRole('heading', { name: /Change Business Category \(₹101 Fee\)/i })).toBeVisible();
     await expect(page.getByText('₹101', { exact: true })).toBeVisible();
-    await expect(page.getByText(/queueless@upi/i)).toBeVisible();
+    await expect(page.getByText(/absunny@ybl/i)).toBeVisible();
 
     // Select new category: "Clinic & Doctor"
     await page.locator('form select').selectOption('Clinic & Doctor');

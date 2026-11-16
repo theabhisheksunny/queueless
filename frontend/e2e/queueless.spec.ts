@@ -96,7 +96,8 @@ test.describe('QueueLess Digital Token Register E2E Tests', () => {
     await expect(page.getByText('Monthly Plan')).toBeVisible();
     await expect(page.getByText('Yearly Plan')).toBeVisible();
 
-    // Verify UPI payment instructions and copy button
+    // Verify UPI payment instructions, UPI ID and copy button
+    await expect(page.getByText('absunny@ybl')).toBeVisible();
     await expect(page.getByRole('button', { name: /Copy UPI ID/i })).toBeVisible();
     await expect(page.getByText('Scan with GPay, PhonePe, Paytm, or BHIM')).toBeVisible();
   });
@@ -341,5 +342,52 @@ test.describe('QueueLess Digital Token Register E2E Tests', () => {
     await expect(customerPage.getByText(/COMPLETED|service has been completed|सेवा पूर्ण/i).first()).toBeVisible({ timeout: 10000 });
 
     await customerPage.close();
+  });
+
+  test('10. Mobile QR Modal Viewport & 44px Close Target Verification', async ({ page }) => {
+    await loginOwner(page);
+    await expect(page.getByText('Customer Queue Register')).toBeVisible();
+
+    // 1. Narrow mobile viewport (320px x 568px, iPhone SE)
+    await page.setViewportSize({ width: 320, height: 568 });
+    await page.getByRole('button', { name: /Show QR Code/i }).first().click();
+    await expect(page.getByText('Scan to Join Queue')).toBeVisible();
+
+    const closeBtnNarrow = page.getByTestId('close-qr-modal');
+    await expect(closeBtnNarrow).toBeVisible();
+
+    // Verify touch target is at least 44x44px and completely within viewport
+    const boxNarrow = await closeBtnNarrow.boundingBox();
+    expect(boxNarrow).toBeTruthy();
+    expect(boxNarrow!.width).toBeGreaterThanOrEqual(44);
+    expect(boxNarrow!.height).toBeGreaterThanOrEqual(44);
+    expect(boxNarrow!.y).toBeGreaterThanOrEqual(0);
+
+    await closeBtnNarrow.click();
+    await expect(page.getByText('Scan to Join Queue')).not.toBeVisible();
+
+    // 2. Short height mobile viewport (375px x 400px, landscape phone)
+    await page.setViewportSize({ width: 375, height: 400 });
+    await page.getByRole('button', { name: /Show QR Code/i }).first().click();
+    await expect(page.getByText('Scan to Join Queue')).toBeVisible();
+
+    const closeBtnShort = page.getByTestId('close-qr-modal');
+    await expect(closeBtnShort).toBeVisible();
+
+    const boxShort = await closeBtnShort.boundingBox();
+    expect(boxShort).toBeTruthy();
+    expect(boxShort!.width).toBeGreaterThanOrEqual(44);
+    expect(boxShort!.height).toBeGreaterThanOrEqual(44);
+    expect(boxShort!.y).toBeGreaterThanOrEqual(0);
+
+    // Scroll modal and verify close button remains visible and accessible
+    await page.locator('.overflow-y-auto').first().evaluate(el => { el.scrollTop = 200; });
+    await expect(closeBtnShort).toBeVisible();
+
+    await closeBtnShort.click();
+    await expect(page.getByText('Scan to Join Queue')).not.toBeVisible();
+
+    // Reset viewport to default desktop
+    await page.setViewportSize({ width: 1280, height: 720 });
   });
 });

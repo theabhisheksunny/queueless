@@ -50,22 +50,32 @@ export const QrModal: React.FC<QrModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto bg-slate-900/60 backdrop-blur-sm animate-fade-in print:p-0 print:bg-white print:static">
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-lg w-full max-h-[92vh] flex flex-col my-auto overflow-hidden print:shadow-none print:border-none print:max-w-none print:w-full">
+    <div
+      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-4 overflow-y-auto bg-slate-900/60 backdrop-blur-sm animate-fade-in print:p-0 print:bg-white print:static"
+      style={{
+        paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))',
+        paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0.75rem))',
+        paddingLeft: 'max(0.75rem, env(safe-area-inset-left, 0.75rem))',
+        paddingRight: 'max(0.75rem, env(safe-area-inset-right, 0.75rem))',
+      }}
+    >
+      <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-lg w-full max-h-[calc(100dvh-max(1.5rem,env(safe-area-inset-top,1.5rem)+env(safe-area-inset-bottom,1.5rem)))] sm:max-h-[92vh] flex flex-col my-auto overflow-hidden print:shadow-none print:border-none print:max-w-none print:w-full">
         {/* Header - Hidden in Print */}
-        <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 flex-shrink-0 print:hidden">
-          <h3 className="text-lg font-bold text-slate-900">{t('qrTitle')}</h3>
+        <div className="px-5 py-3 sm:px-6 sm:py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 backdrop-blur-sm flex-shrink-0 sticky top-0 z-10 print:hidden">
+          <h3 className="text-base sm:text-lg font-bold text-slate-900">{t('qrTitle')}</h3>
           <button
+            type="button"
             onClick={onClose}
             aria-label="Close"
-            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            data-testid="close-qr-modal"
+            className="min-w-[44px] min-h-[44px] w-11 h-11 flex items-center justify-center rounded-2xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 active:bg-slate-200 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Printable Placard Container */}
-        <div className="p-6 md:p-8 text-center flex flex-col items-center overflow-y-auto print:p-12">
+        <div className="p-4 sm:p-6 md:p-8 text-center flex flex-col items-center overflow-y-auto flex-1 min-h-0 print:p-12">
           {/* Shop Header */}
           <div className="mb-4">
             <span className="text-xs uppercase tracking-wider font-bold px-3 py-1 rounded-full bg-brand-50 text-brand-700 border border-brand-200">
@@ -80,18 +90,25 @@ export const QrModal: React.FC<QrModalProps> = ({
           </div>
 
           {/* QR Code Canvas Card */}
-          <div className="p-5 rounded-3xl bg-white border-2 border-brand-200 shadow-lg shadow-brand-500/10 inline-block my-2">
+          <div className="p-3 sm:p-5 rounded-3xl bg-white border-2 border-brand-200 shadow-lg shadow-brand-500/10 inline-block my-2">
             <div ref={canvasRef} className="hidden">
               {/* Hidden canvas for downloading crisp PNG */}
               <QRCodeCanvas value={joinUrl} size={600} level="H" includeMargin />
             </div>
-            {/* Crisp SVG QR code for sharp rendering on high-DPI screens and print */}
+            {/* Crisp SVG QR code for sharp rendering on mobile and desktop */}
+            <QRCodeSVG
+              value={joinUrl}
+              size={180}
+              level="H"
+              includeMargin
+              className="sm:hidden rounded-xl"
+            />
             <QRCodeSVG
               value={joinUrl}
               size={220}
               level="H"
               includeMargin
-              className="rounded-xl"
+              className="hidden sm:block rounded-xl"
             />
           </div>
 
@@ -112,26 +129,29 @@ export const QrModal: React.FC<QrModalProps> = ({
         </div>
 
         {/* Action Buttons - Hidden in Print */}
-        <div className="p-6 bg-slate-50 border-t border-slate-100 flex flex-wrap gap-2.5 flex-shrink-0 print:hidden">
+        <div className="p-4 sm:p-6 bg-slate-50 border-t border-slate-100 flex flex-wrap gap-2 sm:gap-2.5 flex-shrink-0 print:hidden">
           <button
+            type="button"
             onClick={handlePrint}
-            className="flex-1 min-w-[130px] inline-flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-sm shadow-md shadow-brand-500/20 transition-all"
+            className="flex-1 min-w-[120px] sm:min-w-[130px] inline-flex items-center justify-center gap-2 py-2.5 sm:py-3 px-3 sm:px-4 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-xs sm:text-sm shadow-md shadow-brand-500/20 transition-all min-h-[44px]"
           >
             <Printer className="w-4 h-4" />
             <span>{t('printPoster')}</span>
           </button>
 
           <button
+            type="button"
             onClick={handleDownload}
-            className="flex-1 min-w-[130px] inline-flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold text-sm transition-colors"
+            className="flex-1 min-w-[120px] sm:min-w-[130px] inline-flex items-center justify-center gap-2 py-2.5 sm:py-3 px-3 sm:px-4 rounded-2xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition-colors min-h-[44px]"
           >
             <Download className="w-4 h-4 text-slate-500" />
             <span>{t('downloadQr')}</span>
           </button>
 
           <button
+            type="button"
             onClick={handleCopy}
-            className="inline-flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold text-sm transition-colors"
+            className="inline-flex items-center justify-center gap-2 py-2.5 sm:py-3 px-3 sm:px-4 rounded-2xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition-colors min-h-[44px]"
             title={t('copyJoinLink')}
           >
             {copied ? (
@@ -142,7 +162,7 @@ export const QrModal: React.FC<QrModalProps> = ({
             ) : (
               <>
                 <Copy className="w-4 h-4 text-slate-500" />
-                <span>Copy Link</span>
+                <span>Copy</span>
               </>
             )}
           </button>
@@ -151,7 +171,7 @@ export const QrModal: React.FC<QrModalProps> = ({
             href={joinUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="p-3 rounded-2xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 transition-colors"
+            className="p-2.5 sm:p-3 rounded-2xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 transition-colors min-w-[44px] min-h-[44px] inline-flex items-center justify-center"
             title={t('openCustomerView')}
           >
             <ExternalLink className="w-4 h-4" />

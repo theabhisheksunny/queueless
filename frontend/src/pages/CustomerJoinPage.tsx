@@ -1,18 +1,32 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { api } from '../api/client';
+import { api, type PublicQueueInfoData } from '../api/client';
 import { useLanguage } from '../context/LanguageContext';
-import { QrCode, User, Phone, ArrowRight, AlertCircle, Globe } from 'lucide-react';
+import { QrCode, User, Phone, ArrowRight, AlertCircle, Globe, Clock, Users } from 'lucide-react';
+import { getTheme } from '../theme/theme';
 
 export const CustomerJoinPage: React.FC = () => {
   const { publicQueueId } = useParams<{ publicQueueId: string }>();
   const navigate = useNavigate();
   const { language, toggleLanguage, t } = useLanguage();
 
+  const [queueInfo, setQueueInfo] = useState<PublicQueueInfoData | null>(null);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!publicQueueId) return;
+    api.getPublicQueueInfo(publicQueueId)
+      .then((data) => setQueueInfo(data))
+      .catch(() => {
+        // Fallback gracefully without blocking join form
+      });
+  }, [publicQueueId]);
+
+  const theme = getTheme(queueInfo?.category);
+  const ThemeIcon = theme.icon;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,7 +55,10 @@ export const CustomerJoinPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-brand-50/50 via-slate-50 to-slate-100 flex flex-col justify-between p-4 sm:p-6 relative selection:bg-brand-500 selection:text-white">
+    <div
+      data-theme={theme.id}
+      className={`min-h-screen ${theme.styles.pageBgGradient} flex flex-col justify-between p-4 sm:p-6 relative selection:bg-brand-500 selection:text-white transition-colors duration-300`}
+    >
       {/* Top Bar with Language Toggle */}
       <div className="max-w-md w-full mx-auto flex items-center justify-between py-2">
         <div className="flex items-center gap-2">
@@ -62,22 +79,53 @@ export const CustomerJoinPage: React.FC = () => {
 
       {/* Main Join Card */}
       <div className="max-w-md w-full mx-auto my-auto py-6">
-        <div className="bg-white rounded-3xl shadow-xl shadow-brand-950/5 border border-slate-200/80 overflow-hidden">
+        <div className={`bg-white rounded-3xl shadow-xl shadow-brand-950/5 border ${theme.styles.cardBorder} overflow-hidden transition-all`}>
           {/* Card Header Banner */}
-          <div className="p-6 sm:p-8 bg-gradient-to-tr from-brand-700 via-brand-600 to-brand-500 text-white text-center">
-            <span className="text-xs uppercase tracking-widest font-bold px-3 py-1 rounded-full bg-white/20 backdrop-blur-md inline-block mb-3">
-              Digital Token Queue
-            </span>
+          <div className={`p-6 sm:p-8 ${theme.styles.bannerGradient} text-center relative overflow-hidden`}>
+            <div className="flex items-center justify-center gap-1.5 mb-2">
+              <span className={`text-[11px] uppercase tracking-wider font-extrabold px-3 py-1 rounded-full border inline-flex items-center gap-1.5 ${theme.styles.bannerTag}`}>
+                <ThemeIcon className="w-3 h-3" />
+                <span>{queueInfo?.category || theme.categoryLabel}</span>
+              </span>
+            </div>
+
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              {t('joinHeading')}
+              {queueInfo?.shopName || t('joinHeading')}
             </h1>
-            <p className="text-sm font-medium text-brand-100 mt-1 max-w-xs mx-auto">
-              {t('joinSubheading')}
+            <p className={`text-sm font-medium ${theme.styles.bannerSubtext} mt-1 max-w-xs mx-auto`}>
+              {queueInfo?.shopName ? t('joinHeading') : t('joinSubheading')}
             </p>
+
+            {/* Live Queue Overview Badge if available */}
+            {queueInfo && (
+              <div className="mt-4 pt-3 border-t border-white/15 flex items-center justify-around text-xs font-semibold">
+                <div className="flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${queueInfo.queueOpen ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+                  <span>{queueInfo.queueOpen ? 'Queue Open' : 'Queue Closed'}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5 opacity-80" />
+                  <span>{queueInfo.totalWaiting} waiting</span>
+                </div>
+                {queueInfo.currentlyServingToken && queueInfo.currentlyServingToken !== '-' && (
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 opacity-80" />
+                    <span>Serving #{queueInfo.currentlyServingToken}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-5">
+            {queueInfo && !queueInfo.queueOpen && (
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs sm:text-sm font-semibold flex items-start gap-2.5">
+                <AlertCircle className="w-5 h-5 flex-shrink-0 text-amber-600 mt-0.5" />
+                <span>The shop owner has paused registrations. You can check back shortly or ask the staff.</span>
+              </div>
+            )}
+
             {error && (
               <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm font-medium flex items-start gap-2.5">
                 <AlertCircle className="w-5 h-5 flex-shrink-0 text-rose-500 mt-0.5" />
@@ -98,7 +146,7 @@ export const CustomerJoinPage: React.FC = () => {
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                   placeholder={t('enterNamePlaceholder')}
-                  className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 text-base font-semibold placeholder:font-normal placeholder:text-slate-400 transition-all"
+                  className={`w-full pl-12 pr-4 py-3.5 rounded-2xl border border-slate-200 ${theme.styles.focusRing} outline-none text-slate-900 text-base font-semibold placeholder:font-normal placeholder:text-slate-400 transition-all`}
                 />
               </div>
             </div>
@@ -114,7 +162,7 @@ export const CustomerJoinPage: React.FC = () => {
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value)}
                   placeholder={t('enterPhonePlaceholder')}
-                  className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 text-base font-semibold placeholder:font-normal placeholder:text-slate-400 transition-all"
+                  className={`w-full pl-12 pr-4 py-3.5 rounded-2xl border border-slate-200 ${theme.styles.focusRing} outline-none text-slate-900 text-base font-semibold placeholder:font-normal placeholder:text-slate-400 transition-all`}
                 />
               </div>
               <p className="text-xs text-slate-400 mt-1 pl-1">
@@ -125,7 +173,7 @@ export const CustomerJoinPage: React.FC = () => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-4 px-6 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-lg shadow-xl shadow-brand-500/30 flex items-center justify-center gap-2 transition-all active:scale-[0.99] disabled:opacity-50"
+              className={`w-full py-4 px-6 rounded-2xl ${theme.styles.primaryButton} flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               <span>{isSubmitting ? 'Issuing Token...' : t('getMyToken')}</span>
               <ArrowRight className="w-5 h-5" />

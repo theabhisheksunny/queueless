@@ -18,6 +18,7 @@ public class ShopActiveQueue {
     private final Long shopId;
     private final String shopName;
     private final int avgServiceDurationMinutes;
+    private volatile String category;
     private Long sessionId;
     private String publicQueueId;
     private volatile boolean open;
@@ -33,8 +34,14 @@ public class ShopActiveQueue {
 
     public ShopActiveQueue(Long shopId, String shopName, int avgServiceDurationMinutes,
                            Long sessionId, String publicQueueId, boolean open, int initialCounter) {
+        this(shopId, shopName, null, avgServiceDurationMinutes, sessionId, publicQueueId, open, initialCounter);
+    }
+
+    public ShopActiveQueue(Long shopId, String shopName, String category, int avgServiceDurationMinutes,
+                           Long sessionId, String publicQueueId, boolean open, int initialCounter) {
         this.shopId = shopId;
         this.shopName = shopName;
+        this.category = category;
         this.avgServiceDurationMinutes = avgServiceDurationMinutes > 0 ? avgServiceDurationMinutes : 15;
         this.sessionId = sessionId;
         this.publicQueueId = publicQueueId;
@@ -52,6 +59,14 @@ public class ShopActiveQueue {
 
     public int getAvgServiceDurationMinutes() {
         return avgServiceDurationMinutes;
+    }
+
+    public String getCategory() {
+        return category;
+    }
+
+    public synchronized void setCategory(String category) {
+        this.category = category;
     }
 
     public Long getSessionId() {
@@ -271,6 +286,7 @@ public class ShopActiveQueue {
                 target.getTrackingToken(),
                 target.getJoinedAt()
         );
+        positionInfo.setCategory(this.category);
         positionInfo.setCompletedAt(target.getCompletedAt());
         if (target.getCompletedAt() != null) {
             positionInfo.setExpiresAt(target.getCompletedAt().plusMinutes(15));

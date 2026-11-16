@@ -56,6 +56,7 @@ export interface QueueDashboardData {
 
 export interface CustomerPositionData {
   shopName: string;
+  category?: string;
   tokenNumber: string;
   currentlyServingToken: string;
   peopleAhead: number;
@@ -66,6 +67,14 @@ export interface CustomerPositionData {
   joinedAt: string;
   completedAt?: string;
   expiresAt?: string;
+}
+
+export interface PublicQueueInfoData {
+  shopName: string;
+  category: string;
+  queueOpen: boolean;
+  totalWaiting: number;
+  currentlyServingToken?: string;
 }
 
 export interface SubscriptionStatusData {
@@ -206,6 +215,8 @@ export const api = {
     request<QueueDashboardData>(`/api/queue/customers/${customerId}`, { method: 'DELETE' }),
 
   // Public Customer QR & Push Notifications
+  getPublicQueueInfo: (publicQueueId: string) =>
+    request<PublicQueueInfoData>(`/api/public/queue/${publicQueueId}/info`),
   joinQueue: (publicQueueId: string, data: { customerName: string; customerPhone?: string }) =>
     request<any>(`/api/public/queue/${publicQueueId}/join`, { method: 'POST', body: JSON.stringify(data) }),
   trackPosition: (trackingToken: string) =>

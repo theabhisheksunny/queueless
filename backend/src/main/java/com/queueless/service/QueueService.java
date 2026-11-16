@@ -243,6 +243,7 @@ public class QueueService {
                 tokenNumber,
                 trackingToken,
                 shop.getName(),
+                shop.getCategory(),
                 positionInfo != null ? positionInfo.getPeopleAhead() : 0,
                 positionInfo != null ? positionInfo.getEstimatedWaitMinutes() : 0,
                 CustomerQueueStatus.WAITING
@@ -573,11 +574,37 @@ public class QueueService {
                 customer.getTrackingToken(),
                 customer.getJoinedAt()
         );
+        posInfo.setCategory(shop.getCategory());
         posInfo.setCompletedAt(customer.getCompletedAt());
         if (customer.getCompletedAt() != null) {
             posInfo.setExpiresAt(customer.getCompletedAt().plusMinutes(this.completedExpirationMinutes));
         }
         return posInfo;
+    }
+
+    /**
+     * Fetches public queue overview info for the customer join page.
+     */
+    @Transactional(readOnly = true)
+    public PublicQueueInfoResponse getPublicQueueInfo(String publicQueueId) {
+        QueueSession session = sessionRepository.findByPublicQueueId(publicQueueId)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid Queue QR code or link."));
+        Shop shop = session.getShop();
+        ShopActiveQueue activeQueue = getOrInitializeQueue(shop.getId());
+        List<QueueCustomerSummary> servingList = activeQueue.getCurrentlyServingCustomers();
+        String servingToken = "-";
+        if (!servingList.isEmpty()) {
+            servingToken = servingList.stream()
+                    .map(QueueCustomerSummary::getTokenNumber)
+                    .collect(Collectors.joining(", "));
+        }
+        return new PublicQueueInfoResponse(
+                shop.getName(),
+                shop.getCategory(),
+                activeQueue.isOpen(),
+                activeQueue.getWaitingCount(),
+                servingToken
+        );
     }
 
     /**

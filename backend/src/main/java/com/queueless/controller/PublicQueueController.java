@@ -2,6 +2,7 @@ package com.queueless.controller;
 
 import com.queueless.dto.CustomerJoinRequest;
 import com.queueless.dto.CustomerJoinResponse;
+import com.queueless.dto.PublicQueueInfoResponse;
 import com.queueless.dto.PushSubscriptionRequest;
 import com.queueless.dto.VapidPublicKeyResponse;
 import com.queueless.model.CustomerPositionInfo;
@@ -30,6 +31,15 @@ public class PublicQueueController {
         this.queueService = queueService;
         this.sseEmitterService = sseEmitterService;
         this.pushService = pushService;
+    }
+
+    /**
+     * Customer previews shop queue info (shop name, category, open status) before joining.
+     */
+    @GetMapping("/{publicQueueId}/info")
+    public ResponseEntity<PublicQueueInfoResponse> getPublicQueueInfo(@PathVariable String publicQueueId) {
+        PublicQueueInfoResponse response = queueService.getPublicQueueInfo(publicQueueId);
+        return ResponseEntity.ok(response);
     }
 
     /**

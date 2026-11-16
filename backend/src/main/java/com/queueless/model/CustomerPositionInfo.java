@@ -16,6 +16,7 @@ public class CustomerPositionInfo {
     private LocalDateTime joinedAt;
     private LocalDateTime completedAt;
     private LocalDateTime expiresAt;
+    private String category;
 
     public CustomerPositionInfo() {}
 
@@ -119,5 +120,13 @@ public class CustomerPositionInfo {
 
     public void setExpiresAt(LocalDateTime expiresAt) {
         this.expiresAt = expiresAt;
+    }
+
+    public String getCategory() {
+        return category;
+    }
+
+    public void setCategory(String category) {
+        this.category = category;
     }
 }

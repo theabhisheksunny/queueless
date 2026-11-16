@@ -50,6 +50,7 @@ public class ActiveQueueManager {
                 queue = new ShopActiveQueue(
                         shop.getId(),
                         shop.getName(),
+                        shop.getCategory(),
                         shop.getAvgServiceDurationMinutes(),
                         sessionId,
                         publicQueueId,
@@ -58,6 +59,7 @@ public class ActiveQueueManager {
                 );
             } else {
                 queue = existingQueue;
+                queue.setCategory(shop.getCategory());
                 queue.setSessionId(sessionId);
                 queue.setPublicQueueId(publicQueueId);
                 queue.setOpen(isOpen);

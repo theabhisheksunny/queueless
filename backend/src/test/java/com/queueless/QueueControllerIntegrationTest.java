@@ -87,13 +87,22 @@ public class QueueControllerIntegrationTest {
                 .andExpect(jsonPath("$.customers[0].tokenNumber").value("001"))
                 .andExpect(jsonPath("$.customers[0].customerName").value("Deepak Kumar"));
 
-        // 3. Customer 2 Joins via QR Code (Public Endpoint)
+        // 3. Customer 2 Previews Queue Info via Public Endpoint
+        mockMvc.perform(get("/api/public/queue/" + publicQueueId + "/info"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.shopName").value("Elite Barber & Spa"))
+                .andExpect(jsonPath("$.category").value("Barber Shop"))
+                .andExpect(jsonPath("$.queueOpen").value(true))
+                .andExpect(jsonPath("$.totalWaiting").value(1));
+
+        // 3b. Customer 2 Joins via QR Code (Public Endpoint)
         CustomerJoinRequest qrReq = new CustomerJoinRequest("Ananya Roy", "9123456780");
         var qrResult = mockMvc.perform(post("/api/public/queue/" + publicQueueId + "/join")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(qrReq)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tokenNumber").value("002"))
+                .andExpect(jsonPath("$.category").value("Barber Shop"))
                 .andExpect(jsonPath("$.peopleAhead").value(1))
                 .andExpect(jsonPath("$.estimatedWaitMinutes").value(12)) // 1 person * 12 min avg
                 .andReturn();
@@ -105,6 +114,7 @@ public class QueueControllerIntegrationTest {
         mockMvc.perform(get("/api/public/queue/track/" + trackingToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tokenNumber").value("002"))
+                .andExpect(jsonPath("$.category").value("Barber Shop"))
                 .andExpect(jsonPath("$.peopleAhead").value(1));
 
         // 5. Owner Calls Next Customer (#001) - Must be CALLED, but NOT yet SERVING

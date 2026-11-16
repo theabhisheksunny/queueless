@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import type { CustomerSummary } from '../api/client';
 import { X, Edit2, Phone, User } from 'lucide-react';
+import { getTheme } from '../theme/theme';
 
 interface EditCustomerModalProps {
   isOpen: boolean;
   customer: CustomerSummary | null;
+  category?: string;
   onClose: () => void;
   onSubmit: (customerId: number, data: { customerName: string; customerPhone?: string }) => Promise<void>;
 }
@@ -13,6 +15,7 @@ interface EditCustomerModalProps {
 export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
   isOpen,
   customer,
+  category,
   onClose,
   onSubmit,
 }) => {
@@ -21,6 +24,8 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
   const [customerPhone, setCustomerPhone] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const theme = getTheme(category);
 
   useEffect(() => {
     if (customer) {
@@ -54,12 +59,15 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
+    <div
+      data-theme={theme.id}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in"
+    >
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-md w-full overflow-hidden">
         {/* Header */}
         <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-brand-100 text-brand-700 flex items-center justify-center">
+            <div className={`w-9 h-9 rounded-xl ${theme.styles.iconBg} flex items-center justify-center`}>
               <Edit2 className="w-5 h-5" />
             </div>
             <div>
@@ -94,7 +102,7 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
                 required
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
-                className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 text-base font-medium transition-all"
+                className={`w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 ${theme.styles.focusRing} outline-none text-slate-900 text-base font-medium transition-all`}
               />
             </div>
           </div>
@@ -109,7 +117,7 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
                 type="tel"
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
-                className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 text-base font-medium transition-all"
+                className={`w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 ${theme.styles.focusRing} outline-none text-slate-900 text-base font-medium transition-all`}
               />
             </div>
           </div>
@@ -127,7 +135,7 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex-1 py-3 px-4 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-sm shadow-md shadow-brand-500/25 transition-all disabled:opacity-50"
+              className={`flex-1 py-3 px-4 rounded-2xl ${theme.styles.primaryButton} font-semibold text-sm transition-all disabled:opacity-50`}
             >
               {isSubmitting ? 'Saving...' : t('saveChanges')}
             </button>

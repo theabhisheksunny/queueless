@@ -4,6 +4,7 @@ import { api, type CustomerPositionData } from '../api/client';
 import { useLanguage } from '../context/LanguageContext';
 import { StatusBadge } from '../components/StatusBadge';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { getTheme } from '../theme/theme';
 import {
   QrCode,
   Volume2,
@@ -327,8 +328,14 @@ export const CustomerTrackPage: React.FC = () => {
   const isNoShow = positionInfo.status === 'NO_SHOW';
   const isTerminal = isCompleted || isLeft || isCancelled || isNoShow;
 
+  const theme = getTheme(positionInfo.category);
+  const ThemeIcon = theme.icon;
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-brand-50/40 via-slate-50 to-slate-100 flex flex-col justify-between p-4 sm:p-6 selection:bg-brand-500 selection:text-white">
+    <div
+      data-theme={theme.id}
+      className={`min-h-screen ${theme.styles.pageBgGradient} flex flex-col justify-between p-4 sm:p-6 selection:bg-brand-500 selection:text-white transition-colors duration-300`}
+    >
       {/* Top Header */}
       <div className="max-w-md w-full mx-auto flex items-center justify-between py-2">
         <div className="flex items-center gap-2">
@@ -383,13 +390,19 @@ export const CustomerTrackPage: React.FC = () => {
 
       {/* Main Token Tracking Card */}
       <div className="max-w-md w-full mx-auto my-auto py-4">
-        <div className="bg-white rounded-3xl shadow-xl shadow-brand-950/5 border border-slate-200/80 overflow-hidden">
+        <div className={`bg-white rounded-3xl shadow-xl shadow-brand-950/5 border ${theme.styles.cardBorder} overflow-hidden`}>
           {/* Shop Header Banner */}
           <div className="p-6 text-center border-b border-slate-100 bg-slate-50/60">
-            <span className="text-xs uppercase tracking-wider font-bold px-3 py-1 rounded-full bg-brand-50 text-brand-700 border border-brand-200">
-              Live Token Register
-            </span>
-            <h1 className="text-2xl font-black text-slate-900 mt-2">
+            <div className="flex items-center justify-center gap-2 mb-2 flex-wrap">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border uppercase tracking-wider bg-white">
+                <ThemeIcon className={`w-3.5 h-3.5 ${theme.styles.iconText}`} />
+                <span className="text-slate-800">{positionInfo.category || theme.categoryLabel}</span>
+              </div>
+              <span className="text-[11px] uppercase tracking-wider font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                Live Token Register
+              </span>
+            </div>
+            <h1 className="text-2xl font-black text-slate-900 mt-1">
               {positionInfo.shopName}
             </h1>
 
@@ -515,12 +528,12 @@ export const CustomerTrackPage: React.FC = () => {
 
           {/* TURN ALERT BANNER (If Called or Serving) */}
           {isCalled && (
-            <div className="p-4 bg-brand-600 text-white text-center animate-bounce-short">
+            <div className={`p-4 ${theme.styles.primaryButton} text-center animate-bounce-short`}>
               <div className="flex items-center justify-center gap-2 font-black text-lg">
                 <Volume2 className="w-5 h-5 animate-pulse" />
                 <span>{t('turnAlertHeading')}</span>
               </div>
-              <p className="text-sm font-medium text-brand-100 mt-0.5">
+              <p className="text-sm font-medium opacity-90 mt-0.5">
                 {t('turnAlertMsg')}
               </p>
             </div>
@@ -546,8 +559,8 @@ export const CustomerTrackPage: React.FC = () => {
                   isServing
                     ? 'bg-emerald-600 text-white shadow-emerald-500/30'
                     : isCalled
-                    ? 'bg-brand-600 text-white shadow-brand-500/30 ring-8 ring-brand-300/40 animate-pulse'
-                    : 'bg-brand-50 text-brand-700 border-2 border-brand-200'
+                    ? `${theme.styles.calledHighlight} animate-pulse`
+                    : `${theme.styles.tokenHeroCard}`
                 }`}
               >
                 #{positionInfo.tokenNumber}
@@ -555,7 +568,7 @@ export const CustomerTrackPage: React.FC = () => {
             </div>
 
             <div className="mt-1">
-              <StatusBadge status={positionInfo.status} size="lg" />
+              <StatusBadge status={positionInfo.status} category={positionInfo.category} size="lg" />
             </div>
           </div>
 
@@ -565,7 +578,7 @@ export const CustomerTrackPage: React.FC = () => {
               {/* Serving Now */}
               <div className="p-4 text-center">
                 <p className="text-[11px] font-bold text-slate-400 uppercase">Now Serving</p>
-                <p className="text-xl sm:text-2xl font-black text-brand-600 mt-1">
+                <p className={`text-xl sm:text-2xl font-black ${theme.styles.iconText} mt-1`}>
                   {positionInfo.currentlyServingToken && positionInfo.currentlyServingToken !== '-'
                     ? positionInfo.currentlyServingToken
                         .split(', ')
@@ -607,7 +620,7 @@ export const CustomerTrackPage: React.FC = () => {
             {isLeft ? (
               <button
                 onClick={handleRejoinQueue}
-                className="w-full py-3.5 px-4 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2"
+                className={`w-full py-3.5 px-4 rounded-2xl ${theme.styles.primaryButton} flex items-center justify-center gap-2`}
               >
                 <RotateCcw className="w-4 h-4" />
                 <span>{t('rejoinQueueBtn')}</span>

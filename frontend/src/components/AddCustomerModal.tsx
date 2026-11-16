@@ -1,15 +1,18 @@
 import React, { useState } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { X, UserPlus, Phone, User } from 'lucide-react';
+import { getTheme } from '../theme/theme';
 
 interface AddCustomerModalProps {
   isOpen: boolean;
+  category?: string;
   onClose: () => void;
   onSubmit: (data: { customerName: string; customerPhone?: string }) => Promise<void>;
 }
 
 export const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
   isOpen,
+  category,
   onClose,
   onSubmit,
 }) => {
@@ -18,6 +21,8 @@ export const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
   const [customerPhone, setCustomerPhone] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const theme = getTheme(category);
 
   if (!isOpen) return null;
 
@@ -46,12 +51,15 @@ export const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
+    <div
+      data-theme={theme.id}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in"
+    >
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-md w-full overflow-hidden">
         {/* Header */}
         <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-brand-100 text-brand-700 flex items-center justify-center">
+            <div className={`w-9 h-9 rounded-xl ${theme.styles.iconBg} flex items-center justify-center`}>
               <UserPlus className="w-5 h-5" />
             </div>
             <h3 className="text-lg font-bold text-slate-900">{t('modalAddTitle')}</h3>
@@ -85,7 +93,7 @@ export const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 placeholder={t('enterNamePlaceholder')}
-                className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 text-base font-medium placeholder:text-slate-400 transition-all"
+                className={`w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 ${theme.styles.focusRing} outline-none text-slate-900 text-base font-medium placeholder:text-slate-400 transition-all`}
               />
             </div>
           </div>
@@ -101,7 +109,7 @@ export const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
                 placeholder={t('enterPhonePlaceholder')}
-                className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 text-base font-medium placeholder:text-slate-400 transition-all"
+                className={`w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 ${theme.styles.focusRing} outline-none text-slate-900 text-base font-medium placeholder:text-slate-400 transition-all`}
               />
             </div>
           </div>
@@ -119,7 +127,7 @@ export const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex-1 py-3 px-4 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-sm shadow-md shadow-brand-500/25 transition-all disabled:opacity-50"
+              className={`flex-1 py-3 px-4 rounded-2xl ${theme.styles.primaryButton} font-semibold text-sm transition-all disabled:opacity-50`}
             >
               {isSubmitting ? 'Adding...' : t('generateTokenBtn')}
             </button>

@@ -3,16 +3,22 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { QrCode, Settings, CreditCard, LogOut, Globe } from 'lucide-react';
+import { getTheme } from '../theme/theme';
 
 interface NavbarProps {
   onShowQr?: () => void;
   publicQueueId?: string;
+  category?: string;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onShowQr, publicQueueId }) => {
+export const Navbar: React.FC<NavbarProps> = ({ onShowQr, publicQueueId, category: propCategory }) => {
   const { user, logout } = useAuth();
   const { language, toggleLanguage, t } = useLanguage();
   const navigate = useNavigate();
+
+  const currentCategory = propCategory || user?.category;
+  const theme = getTheme(currentCategory);
+  const ThemeIcon = theme.icon;
 
   const handleLogout = () => {
     logout();
@@ -43,8 +49,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onShowQr, publicQueueId }) => {
               <span className="font-semibold text-slate-800 text-sm max-w-[200px] truncate">
                 {user.shopName}
               </span>
-              <span className="text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-medium">
-                {user.category}
+              <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold border inline-flex items-center gap-1 ${theme.styles.badge}`}>
+                <ThemeIcon className="w-3 h-3" />
+                <span>{user.category || theme.categoryLabel}</span>
               </span>
             </div>
           )}

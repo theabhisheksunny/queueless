@@ -9,6 +9,7 @@ import { EditCustomerModal } from '../components/EditCustomerModal';
 import { QrModal } from '../components/QrModal';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { QRCodeSVG } from 'qrcode.react';
+import { getTheme } from '../theme/theme';
 import {
   UserPlus,
   QrCode,
@@ -416,11 +417,19 @@ export const DashboardPage: React.FC = () => {
     );
   }
 
+  const currentCategory = dashboard?.category || user?.category;
+  const theme = getTheme(currentCategory);
+  const ThemeIcon = theme.icon;
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div
+      data-theme={theme.id}
+      className={`min-h-screen ${theme.styles.pageBgGradient} flex flex-col transition-colors duration-300`}
+    >
       <Navbar
         onShowQr={() => setIsQrModalOpen(true)}
         publicQueueId={dashboard?.publicQueueId}
+        category={currentCategory}
       />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6">
@@ -430,11 +439,12 @@ export const DashboardPage: React.FC = () => {
             {error}
           </div>
         )}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/80 shadow-sm">
+        <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 sm:p-6 rounded-3xl border ${theme.styles.cardBorder} shadow-sm`}>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-wider font-bold px-2.5 py-0.5 rounded-full bg-brand-50 text-brand-700 border border-brand-200">
-                {dashboard?.category || user?.category}
+              <span className={`text-xs uppercase tracking-wider font-extrabold px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1.5 ${theme.styles.badge}`}>
+                <ThemeIcon className="w-3.5 h-3.5" />
+                <span>{currentCategory || theme.categoryLabel}</span>
               </span>
               <div className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
                 {sseConnected ? (
@@ -599,7 +609,7 @@ export const DashboardPage: React.FC = () => {
           {/* Add Customer Manual */}
           <button
             onClick={() => setIsAddModalOpen(true)}
-            className="py-4 px-5 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-base shadow-lg shadow-brand-500/25 flex items-center justify-center gap-2.5 transition-all active:scale-[0.98]"
+            className={`py-4 px-5 rounded-2xl ${theme.styles.primaryButton} text-base flex items-center justify-center gap-2.5 transition-all`}
           >
             <UserPlus className="w-5 h-5" />
             <span>{t('addCustomer')}</span>
@@ -609,9 +619,9 @@ export const DashboardPage: React.FC = () => {
           <button
             onClick={() => setIsQrModalOpen(true)}
             disabled={!dashboard?.publicQueueId}
-            className="py-4 px-5 rounded-2xl bg-white hover:bg-slate-50 border-2 border-slate-200/90 text-slate-800 font-bold text-base shadow-sm flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] disabled:opacity-50"
+            className={`py-4 px-5 rounded-2xl ${theme.styles.secondaryButton} text-base shadow-sm flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] disabled:opacity-50`}
           >
-            <QrCode className="w-5 h-5 text-brand-600" />
+            <QrCode className="w-5 h-5" />
             <span>{t('showQrCode')}</span>
           </button>
 
@@ -619,7 +629,7 @@ export const DashboardPage: React.FC = () => {
           <button
             onClick={handleCallNext}
             disabled={actionLoading || !dashboard?.waitingCustomers}
-            className="py-4 px-5 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-bold text-base shadow-md shadow-amber-500/20 flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
+            className={`py-4 px-5 rounded-2xl ${theme.styles.accentButton} text-base flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed`}
           >
             <Volume2 className="w-5 h-5" />
             <span>{t('callNext')}</span>
@@ -627,7 +637,7 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         {/* Customer List Header & Filter Tabs */}
-        <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
+        <div className={`bg-white rounded-3xl border ${theme.styles.cardBorder} shadow-sm overflow-hidden`}>
           <div className="p-4 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-xl font-extrabold text-slate-900">
@@ -686,8 +696,8 @@ export const DashboardPage: React.FC = () => {
           {/* Customer Cards List */}
           {filteredCustomers.length === 0 ? (
             <div className="py-16 px-4 text-center">
-              <div className="w-14 h-14 rounded-3xl bg-brand-50 text-brand-600 mx-auto flex items-center justify-center mb-3">
-                <Users className="w-7 h-7" />
+              <div className={`w-14 h-14 rounded-3xl ${theme.styles.iconBg} mx-auto flex items-center justify-center mb-3`}>
+                <ThemeIcon className="w-7 h-7" />
               </div>
               <h3 className="text-base font-bold text-slate-800">No customers in this view</h3>
               <p className="text-sm text-slate-500 max-w-sm mx-auto mt-1">
@@ -709,7 +719,7 @@ export const DashboardPage: React.FC = () => {
                       isCurrentServing
                         ? 'bg-emerald-50/40'
                         : isCalled
-                        ? 'bg-brand-50/40'
+                        ? `${theme.styles.cardHighlight}`
                         : 'hover:bg-slate-50/70'
                     }`}
                   >
@@ -721,8 +731,8 @@ export const DashboardPage: React.FC = () => {
                           isCurrentServing
                             ? 'bg-emerald-600 text-white shadow-emerald-500/20'
                             : isCalled
-                            ? 'bg-brand-600 text-white shadow-brand-500/20 ring-4 ring-brand-300/40'
-                            : 'bg-brand-50 text-brand-700 border border-brand-200'
+                            ? `${theme.styles.calledHighlight}`
+                            : `${theme.styles.tokenHeroCard}`
                         }`}
                       >
                         <span className="text-[10px] uppercase font-bold tracking-tight opacity-75">
@@ -737,7 +747,7 @@ export const DashboardPage: React.FC = () => {
                           <h4 className="text-base sm:text-lg font-bold text-slate-900">
                             {cust.customerName}
                           </h4>
-                          <StatusBadge status={cust.status} size="sm" />
+                          <StatusBadge status={cust.status} category={currentCategory} size="sm" />
                         </div>
                         <div className="flex items-center gap-3 text-xs text-slate-500 font-medium mt-1">
                           {cust.customerPhone && (
@@ -870,6 +880,7 @@ export const DashboardPage: React.FC = () => {
       {/* Modals */}
       <AddCustomerModal
         isOpen={isAddModalOpen}
+        category={currentCategory}
         onClose={() => setIsAddModalOpen(false)}
         onSubmit={handleManualAddSubmit}
       />
@@ -877,6 +888,7 @@ export const DashboardPage: React.FC = () => {
       <EditCustomerModal
         isOpen={!!editingCustomer}
         customer={editingCustomer}
+        category={currentCategory}
         onClose={() => setEditingCustomer(null)}
         onSubmit={handleEditSubmit}
       />
@@ -885,7 +897,7 @@ export const DashboardPage: React.FC = () => {
         isOpen={isQrModalOpen}
         onClose={() => setIsQrModalOpen(false)}
         shopName={dashboard?.shopName || user?.shopName || 'Shop Queue'}
-        category={dashboard?.category || user?.category || 'Service'}
+        category={currentCategory || 'Other Local Business'}
         publicQueueId={dashboard?.publicQueueId || ''}
       />
 

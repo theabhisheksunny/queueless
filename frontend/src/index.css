@@ -34,3 +34,65 @@
 .pulse-ring {
   animation: pulse-ring 2.5s infinite ease-in-out;
 }
+
+/* Category-Based Dynamic Theme Variables */
+:root,
+[data-theme="default"] {
+  --theme-primary: #7c3aed;
+  --theme-primary-hover: #6d28d9;
+  --theme-primary-light: #f5f3ff;
+  --theme-primary-border: #ddd6fe;
+  --theme-primary-text: #5b21b6;
+  --theme-accent: #8b5cf6;
+  --theme-ring: rgba(124, 58, 237, 0.25);
+}
+
+[data-theme="barber"] {
+  --theme-primary: #d97706;
+  --theme-primary-hover: #b45309;
+  --theme-primary-light: #fffbeb;
+  --theme-primary-border: #fde68a;
+  --theme-primary-text: #92400e;
+  --theme-accent: #fbbf24;
+  --theme-ring: rgba(217, 119, 6, 0.25);
+}
+
+[data-theme="salon"] {
+  --theme-primary: #e11d48;
+  --theme-primary-hover: #be123c;
+  --theme-primary-light: #fff1f2;
+  --theme-primary-border: #fecdd3;
+  --theme-primary-text: #9f1239;
+  --theme-accent: #f43f5e;
+  --theme-ring: rgba(225, 29, 72, 0.25);
+}
+
+[data-theme="clinic"] {
+  --theme-primary: #0d9488;
+  --theme-primary-hover: #0f766e;
+  --theme-primary-light: #f0fdfa;
+  --theme-primary-border: #99f6e4;
+  --theme-primary-text: #115e59;
+  --theme-accent: #0284c7;
+  --theme-ring: rgba(13, 148, 136, 0.25);
+}
+
+[data-theme="restaurant"] {
+  --theme-primary: #c2410c;
+  --theme-primary-hover: #9a3412;
+  --theme-primary-light: #fff7ed;
+  --theme-primary-border: #fed7aa;
+  --theme-primary-text: #9a3412;
+  --theme-accent: #d97706;
+  --theme-ring: rgba(194, 65, 12, 0.25);
+}
+
+[data-theme="retail"] {
+  --theme-primary: #0284c7;
+  --theme-primary-hover: #0369a1;
+  --theme-primary-light: #f0f9ff;
+  --theme-primary-border: #bae6fd;
+  --theme-primary-text: #075985;
+  --theme-accent: #06b6d4;
+  --theme-ring: rgba(2, 132, 199, 0.25);
+}

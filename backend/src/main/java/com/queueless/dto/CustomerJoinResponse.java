@@ -9,14 +9,21 @@ public class CustomerJoinResponse {
     private int peopleAhead;
     private int estimatedWaitMinutes;
     private CustomerQueueStatus status;
+    private String category;
 
     public CustomerJoinResponse() {}
 
     public CustomerJoinResponse(String tokenNumber, String trackingToken, String shopName,
                                 int peopleAhead, int estimatedWaitMinutes, CustomerQueueStatus status) {
+        this(tokenNumber, trackingToken, shopName, null, peopleAhead, estimatedWaitMinutes, status);
+    }
+
+    public CustomerJoinResponse(String tokenNumber, String trackingToken, String shopName, String category,
+                                int peopleAhead, int estimatedWaitMinutes, CustomerQueueStatus status) {
         this.tokenNumber = tokenNumber;
         this.trackingToken = trackingToken;
         this.shopName = shopName;
+        this.category = category;
         this.peopleAhead = peopleAhead;
         this.estimatedWaitMinutes = estimatedWaitMinutes;
         this.status = status;
@@ -68,5 +75,13 @@ public class CustomerJoinResponse {
 
     public void setStatus(CustomerQueueStatus status) {
         this.status = status;
+    }
+
+    public String getCategory() {
+        return category;
+    }
+
+    public void setCategory(String category) {
+        this.category = category;
     }
 }

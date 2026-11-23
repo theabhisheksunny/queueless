@@ -157,6 +157,87 @@ export const SubscriptionPage: React.FC = () => {
           </div>
         </div>
 
+        {/* Pricing Architecture Matrix Card */}
+        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-sm space-y-4">
+          <div>
+            <h3 className="text-base font-bold text-slate-900">QueueLess Business Model & Pricing Matrix</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Transparent, cost-effective pricing designed for multi-branch businesses and growing teams.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+            <div className="p-4 rounded-2xl bg-brand-50/50 border border-brand-200/60">
+              <span className="text-xs font-bold text-brand-700 uppercase tracking-wider block">
+                1. Primary Subscription
+              </span>
+              <div className="text-2xl font-black text-slate-900 mt-1">
+                ₹51 <span className="text-xs font-medium text-slate-500">/ mo</span> or ₹501 <span className="text-xs font-medium text-slate-500">/ yr</span>
+              </div>
+              <ul className="mt-2.5 space-y-1 text-xs text-slate-600">
+                <li className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-brand-600 shrink-0" />
+                  <span>Owner account</span>
+                </li>
+                <li className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-brand-600 shrink-0" />
+                  <span>1 physical branch included</span>
+                </li>
+                <li className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-brand-600 shrink-0" />
+                  <span>1 user seat included</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-amber-50/50 border border-amber-200/60">
+              <span className="text-xs font-bold text-amber-800 uppercase tracking-wider block">
+                2. Additional Physical Branch
+              </span>
+              <div className="text-2xl font-black text-slate-900 mt-1">
+                ₹99 <span className="text-xs font-medium text-slate-500">one-time</span>
+              </div>
+              <ul className="mt-2.5 space-y-1 text-xs text-slate-600">
+                <li className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>Lifetime registration</span>
+                </li>
+                <li className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>Zero recurring fees</span>
+                </li>
+                <li className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>Operates under primary sub</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-200/60">
+              <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider block">
+                3. Additional User Seats
+              </span>
+              <div className="text-2xl font-black text-slate-900 mt-1">
+                ₹47 <span className="text-xs font-medium text-slate-500">/ mo</span> or ₹494 <span className="text-xs font-medium text-slate-500">/ yr</span>
+              </div>
+              <ul className="mt-2.5 space-y-1 text-xs text-slate-600">
+                <li className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>Independent mobile + PIN</span>
+                </li>
+                <li className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>1 active device session</span>
+                </li>
+                <li className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>Reassignable upon revoke</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
         {/* Plan Selection Tabs */}
         <div>
           <h2 className="text-lg font-extrabold text-slate-900 mb-3">

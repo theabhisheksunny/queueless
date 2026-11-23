@@ -28,13 +28,14 @@ import {
   Trash2,
   Radio,
   AlertTriangle,
+  AlertCircle,
   Copy,
   Check,
   Send,
 } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, activeShopId, activeBranch, branches, refreshBusinesses } = useAuth();
   const { t } = useLanguage();
 
   const [dashboard, setDashboard] = useState<QueueDashboardData | null>(null);
@@ -53,6 +54,14 @@ export const DashboardPage: React.FC = () => {
   const [paymentSuccessMsg, setPaymentSuccessMsg] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
+  // Branch Registration (₹99) state
+  const [branchUtr, setBranchUtr] = useState('');
+  const [isBulkBranchPay, setIsBulkBranchPay] = useState(false);
+  const [isSubmittingBranchPayment, setIsSubmittingBranchPayment] = useState(false);
+  const [branchPaymentSuccess, setBranchPaymentSuccess] = useState<string | null>(null);
+  const [branchPaymentError, setBranchPaymentError] = useState<string | null>(null);
+  const [copiedBranchUpi, setCopiedBranchUpi] = useState(false);
+
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
@@ -62,7 +71,7 @@ export const DashboardPage: React.FC = () => {
 
   const fetchDashboard = useCallback(async () => {
     try {
-      const data = await api.getDashboard();
+      const data = await api.getDashboard(activeShopId ?? undefined);
       setDashboard(data);
       setError(null);
       setIsSubscriptionExpired(false);
@@ -75,7 +84,7 @@ export const DashboardPage: React.FC = () => {
       ) {
         setIsSubscriptionExpired(true);
         try {
-          const sub = await api.getSubscriptionStatus();
+          const sub = await api.getSubscriptionStatus(activeShopId ?? undefined);
           setSubData(sub);
           if (sub.pendingPaymentReference) {
             setUtrNumber(sub.pendingPaymentReference);
@@ -86,7 +95,7 @@ export const DashboardPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [activeShopId]);
 
   const handleCopyUpi = () => {
     if (subData?.configuredUpiId) {
@@ -119,11 +128,49 @@ export const DashboardPage: React.FC = () => {
     }
   };
 
+  const pendingBranches = useMemo(() => {
+    return branches.filter((b) => b.registrationStatus === 'PAYMENT_PENDING');
+  }, [branches]);
+
+  const handleBranchRegistrationPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeShopId) return;
+    if (!branchUtr.trim() || branchUtr.trim().length < 6) {
+      setBranchPaymentError('Please enter a valid 12-digit UPI Reference Number / UTR.');
+      return;
+    }
+    setIsSubmittingBranchPayment(true);
+    setBranchPaymentError(null);
+    setBranchPaymentSuccess(null);
+    try {
+      if (isBulkBranchPay && pendingBranches.length > 1) {
+        await api.submitBulkBranchPayment({
+          branchIds: pendingBranches.map((b) => b.id),
+          paymentReference: branchUtr.trim(),
+          paymentUpiId: 'absunny@ybl',
+        });
+        setBranchPaymentSuccess(`Bulk payment of ₹${pendingBranches.length * 99} submitted for ${pendingBranches.length} branches! Admin approval pending.`);
+      } else {
+        await api.submitBranchPayment(activeShopId, {
+          paymentReference: branchUtr.trim(),
+          paymentUpiId: 'absunny@ybl',
+        });
+        setBranchPaymentSuccess('₹99 branch registration payment submitted! Admin will verify and activate your branch shortly.');
+      }
+      await refreshBusinesses();
+      await fetchDashboard();
+    } catch (err: any) {
+      setBranchPaymentError(err.message || 'Failed to submit branch registration payment.');
+    } finally {
+      setIsSubmittingBranchPayment(false);
+    }
+  };
+
   // Fetch initial dashboard and setup Server-Sent Events (SSE)
   useEffect(() => {
     fetchDashboard();
 
-    const sseUrl = api.getOwnerSseUrl();
+    const sseUrl = api.getOwnerSseUrl(activeShopId ?? undefined);
     const eventSource = new EventSource(sseUrl);
 
     eventSource.onopen = () => {
@@ -146,13 +193,13 @@ export const DashboardPage: React.FC = () => {
     return () => {
       eventSource.close();
     };
-  }, [fetchDashboard]);
+  }, [fetchDashboard, activeShopId]);
 
   // Actions
   const handleStartQueue = async () => {
     setActionLoading(true);
     try {
-      const updated = await api.startQueue();
+      const updated = await api.startQueue(activeShopId ?? undefined);
       setDashboard(updated);
     } catch (err: any) {
       alert(err.message || 'Failed to start queue');
@@ -164,7 +211,7 @@ export const DashboardPage: React.FC = () => {
   const handleCloseQueue = async () => {
     setActionLoading(true);
     try {
-      const updated = await api.closeQueue();
+      const updated = await api.closeQueue(activeShopId ?? undefined);
       setDashboard(updated);
     } catch (err: any) {
       alert(err.message || 'Failed to close queue');
@@ -180,7 +227,7 @@ export const DashboardPage: React.FC = () => {
     }
     setActionLoading(true);
     try {
-      const updated = await api.callNextCustomer();
+      const updated = await api.callNextCustomer(activeShopId ?? undefined);
       setDashboard(updated);
     } catch (err: any) {
       alert(err.message || 'Failed to call next customer');
@@ -191,7 +238,7 @@ export const DashboardPage: React.FC = () => {
 
   const handleUpdateStatus = async (customerId: number, status: string) => {
     try {
-      const updated = await api.updateCustomerStatus(customerId, status);
+      const updated = await api.updateCustomerStatus(customerId, status, activeShopId ?? undefined);
       setDashboard(updated);
     } catch (err: any) {
       alert(err.message || 'Failed to update customer status');
@@ -199,12 +246,12 @@ export const DashboardPage: React.FC = () => {
   };
 
   const handleManualAddSubmit = async (data: { customerName: string; customerPhone?: string }) => {
-    const updated = await api.manualAddCustomer(data);
+    const updated = await api.manualAddCustomer(data, activeShopId ?? undefined);
     setDashboard(updated);
   };
 
   const handleEditSubmit = async (customerId: number, data: { customerName: string; customerPhone?: string }) => {
-    const updated = await api.editCustomer(customerId, data);
+    const updated = await api.editCustomer(customerId, data, activeShopId ?? undefined);
     setDashboard(updated);
     setEditingCustomer(null);
   };
@@ -212,7 +259,7 @@ export const DashboardPage: React.FC = () => {
   const handleRemoveConfirm = async () => {
     if (confirmRemoveId == null) return;
     try {
-      const updated = await api.removeCustomer(confirmRemoveId);
+      const updated = await api.removeCustomer(confirmRemoveId, activeShopId ?? undefined);
       setDashboard(updated);
     } catch (err: any) {
       alert(err.message || 'Failed to remove customer');
@@ -437,6 +484,167 @@ export const DashboardPage: React.FC = () => {
         {error && (
           <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm font-semibold">
             {error}
+          </div>
+        )}
+
+        {/* Branch Registration Required Barrier (₹99 One-time) */}
+        {activeBranch?.registrationStatus === 'PAYMENT_PENDING' && (
+          <div className="bg-white p-6 sm:p-8 rounded-3xl border-2 border-amber-300 shadow-md space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                      Registration Required
+                    </span>
+                    <span className="text-xs text-slate-400 font-semibold">One-time ₹99 fee</span>
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-black text-slate-900 mt-1">
+                    Activate {activeBranch.branchName || activeBranch.name}
+                  </h2>
+                  <p className="text-sm text-slate-600 mt-1">
+                    Every additional physical branch requires a one-time ₹99 registration payment.
+                    Once approved, this branch remains registered for lifetime and operates under your main subscription.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {branchPaymentSuccess && (
+              <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                <span>{branchPaymentSuccess}</span>
+              </div>
+            )}
+
+            {branchPaymentError && (
+              <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-sm flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+                <span>{branchPaymentError}</span>
+              </div>
+            )}
+
+            {activeBranch.pendingPaymentReference && !branchPaymentSuccess && (
+              <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 text-blue-900 text-sm flex items-center gap-2">
+                <Clock className="w-5 h-5 text-blue-600 shrink-0" />
+                <div>
+                  <p className="font-semibold">Payment Under Verification</p>
+                  <p className="text-xs text-blue-700 mt-0.5">
+                    UTR: <span className="font-mono font-bold">{activeBranch.pendingPaymentReference}</span>. Admin approval pending.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Optional Bulk Selection when multiple branches pending */}
+            {pendingBranches.length > 1 && (
+              <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <span className="font-bold text-slate-900 text-xs uppercase tracking-wider block">
+                    Bulk Branch Registration Available
+                  </span>
+                  <span className="text-xs text-slate-600">
+                    You have {pendingBranches.length} branches pending registration. You can pay for all branches at once using a single UTR.
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsBulkBranchPay(false)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      !isBulkBranchPay
+                        ? 'bg-amber-600 text-white shadow-sm'
+                        : 'bg-white text-slate-700 border border-slate-200'
+                    }`}
+                  >
+                    Current Branch (₹99)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsBulkBranchPay(true)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      isBulkBranchPay
+                        ? 'bg-amber-600 text-white shadow-sm'
+                        : 'bg-white text-slate-700 border border-slate-200'
+                    }`}
+                  >
+                    All {pendingBranches.length} Branches (₹{pendingBranches.length * 99})
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+              <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-col items-center justify-center text-center">
+                <div className="p-3 bg-white rounded-2xl shadow-sm border border-slate-100">
+                  <QRCodeSVG
+                    value={`upi://pay?pa=absunny@ybl&pn=QueueLess+Token+System&am=${
+                      isBulkBranchPay && pendingBranches.length > 1 ? pendingBranches.length * 99 : 99
+                    }&cu=INR&tn=QueueLess+Branch+Registration`}
+                    size={180}
+                    level="H"
+                  />
+                </div>
+                <div className="mt-4 flex items-center gap-2 px-3 py-1.5 bg-white rounded-xl border border-slate-200 text-xs font-mono">
+                  <span className="font-semibold text-slate-800">absunny@ybl</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText('absunny@ybl');
+                      setCopiedBranchUpi(true);
+                      setTimeout(() => setCopiedBranchUpi(false), 2000);
+                    }}
+                    className="p-1 hover:text-brand-600 transition-colors"
+                  >
+                    {copiedBranchUpi ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                <span className="text-xs text-slate-500 mt-1">
+                  Scan & pay ₹{isBulkBranchPay && pendingBranches.length > 1 ? pendingBranches.length * 99 : 99} via any UPI app
+                </span>
+              </div>
+
+              <form onSubmit={handleBranchRegistrationPayment} className="flex flex-col justify-between space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-1">
+                    Step 2: Submit 12-Digit UPI Reference (UTR)
+                  </h3>
+                  <p className="text-xs text-slate-500 mb-3">
+                    After completing the payment of ₹{isBulkBranchPay && pendingBranches.length > 1 ? pendingBranches.length * 99 : 99} on your UPI app, enter the transaction UTR number below.
+                  </p>
+
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+                    UTR Reference Number
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 432198765432"
+                    value={branchUtr}
+                    onChange={(e) => setBranchUtr(e.target.value)}
+                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-mono"
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmittingBranchPayment}
+                  className="w-full py-3.5 px-5 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm shadow-md shadow-amber-600/20 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>
+                    {isSubmittingBranchPayment
+                      ? 'Submitting...'
+                      : isBulkBranchPay && pendingBranches.length > 1
+                      ? `Submit ₹${pendingBranches.length * 99} Bulk Payment`
+                      : 'Submit ₹99 Branch Payment'}
+                  </span>
+                </button>
+              </form>
+            </div>
           </div>
         )}
         <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 sm:p-6 rounded-3xl border ${theme.styles.cardBorder} shadow-sm`}>

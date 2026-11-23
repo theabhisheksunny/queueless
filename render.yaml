@@ -1,0 +1,64 @@
+# ===================================================================
+# QueueLess — Render Infrastructure as Code Blueprint
+# Service: Docker Web Service (Free Tier)
+# Region: Singapore (ap-southeast-1 / closest to primary target region)
+# Health Check: /actuator/health
+# Auto Deploy: Disabled (deploy triggered via manual approval or deploy hook)
+# ===================================================================
+services:
+  - type: web
+    name: queueless-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: singapore
+    branch: master
+    autoDeploy: false
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      # Memory ergonomics: 512 MB hard container limit on Render Free.
+      # 65% max heap (~332 MB) + 128 MB Metaspace + 48 MB CodeCache + 512k thread stacks safely fits in 512 MB cgroup.
+      - key: JAVA_OPTS
+        value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=65.0 -XX:InitialRAMPercentage=40.0 -Xss512k -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -XX:+ExitOnOutOfMemoryError"
+      # Catch-up maintenance purge upon wake-up if sleeping during scheduled 03:00 AM window
+      - key: QUEUELESS_CLEANUP_ON_STARTUP
+        value: "true"
+      # Frontend reverse-proxy integration (Cloudflare Worker domain)
+      - key: APP_CORS_ALLOWED_ORIGINS
+        value: "https://queueless.theabhisheksunny.workers.dev"
+      # Database Environment Isolation Gate (Fails closed if connecting to wrong project)
+      - key: APP_DATASOURCE_EXPECTED_ENVIRONMENT_TYPE
+        value: "PRODUCTION"
+      # Sensitive secrets managed securely via Render Dashboard (never committed to repository)
+      - key: APP_DATASOURCE_EXPECTED_PROJECT_REF
+        sync: false
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: SPRING_DATASOURCE_USERNAME
+        sync: false
+      - key: SPRING_DATASOURCE_PASSWORD
+        sync: false
+      - key: SPRING_FLYWAY_USER
+        sync: false
+      - key: SPRING_FLYWAY_PASSWORD
+        sync: false
+      - key: APP_JWT_SECRET
+        sync: false
+      - key: APP_ADMIN_KEY
+        sync: false
+      - key: APP_SUPERADMIN_BOOTSTRAP_ENABLED
+        value: "false"
+      - key: APP_SUPERADMIN_EMAIL
+        sync: false
+      - key: APP_SUPERADMIN_PHONE
+        sync: false
+      - key: APP_SUPERADMIN_PASSWORD
+        sync: false
+      - key: APP_WEBPUSH_VAPID_PUBLIC_KEY
+        sync: false
+      - key: APP_WEBPUSH_VAPID_PRIVATE_KEY
+        sync: false
+      - key: APP_WEBPUSH_VAPID_SUBJECT
+        sync: false

@@ -1,9 +1,10 @@
 /**
  * Cloudflare Worker for QueueLess
  * - Serves frontend static assets with SPA fallback for React Router routes.
- * - Proxies /api/* requests to BACKEND_API_URL (Cloud Run Spring Boot backend).
+ * - Proxies /api/* requests to BACKEND_API_URL (Cloud Run / Render Spring Boot backend).
  * - Preserves unbuffered real-time SSE event streams (text/event-stream).
  * - Prevents caching of private API responses and ensures no open-proxy abuse.
+ * - Enforces strict CORS origin validation, restricting cross-origin access to trusted origins.
  * - Ensures correct caching and headers for service worker and web manifest.
  */
 interface Env {
@@ -11,6 +12,26 @@ interface Env {
     fetch: (request: Request) => Promise<Response>;
   };
   BACKEND_API_URL?: string;
+  ALLOWED_ORIGINS?: string;
+}
+
+const TRUSTED_ORIGIN_PATTERNS: RegExp[] = [
+  /^https:\/\/queueless\.theabhisheksunny\.workers\.dev$/,
+  /^https:\/\/queueless-staging\.theabhisheksunny\.workers\.dev$/,
+  /^http:\/\/localhost(:\d+)?$/,
+  /^http:\/\/127\.0\.0\.1(:\d+)?$/,
+];
+
+export function isAllowedOrigin(origin: string | null, workerOrigin: string, configuredOrigins?: string): boolean {
+  if (!origin) return true; // Same-origin request / non-CORS GET
+  if (origin === workerOrigin) return true; // Direct same-origin request
+
+  if (configuredOrigins) {
+    const list = configuredOrigins.split(',').map((o) => o.trim());
+    if (list.includes(origin)) return true;
+  }
+
+  return TRUSTED_ORIGIN_PATTERNS.some((pattern) => pattern.test(origin));
 }
 
 export default {
@@ -20,6 +41,42 @@ export default {
     // 1. Strict API Proxying: Forward /api/* requests to Spring Boot backend
     // Prevents open proxying by only routing paths starting with /api/
     if (url.pathname.startsWith('/api/') && env.BACKEND_API_URL) {
+      const origin = request.headers.get('Origin');
+      const originAllowed = isAllowedOrigin(origin, url.origin, env.ALLOWED_ORIGINS);
+
+      // Handle CORS Preflight (OPTIONS)
+      if (request.method === 'OPTIONS') {
+        if (!originAllowed) {
+          return new Response(JSON.stringify({ error: 'Forbidden: CORS origin not allowed' }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response(null, {
+          status: 204,
+          headers: {
+            'Access-Control-Allow-Origin': origin || url.origin,
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
+            'Access-Control-Allow-Headers':
+              request.headers.get('Access-Control-Request-Headers') ||
+              'Authorization, Content-Type, X-Device-Id, X-Idempotency-Key',
+            'Access-Control-Allow-Credentials': 'true',
+            'Access-Control-Max-Age': '86400',
+            'Vary': 'Origin',
+          },
+        });
+      }
+
+      // If cross-origin request from an untrusted origin, block with 403 Forbidden
+      if (origin && !originAllowed) {
+        return new Response(JSON.stringify({ error: 'Forbidden: CORS origin not allowed' }), {
+          status: 403,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+      }
+
       const backendTarget = env.BACKEND_API_URL.replace(/\/+$/, '');
       const backendUrl = `${backendTarget}${url.pathname}${url.search}`;
 
@@ -36,8 +93,11 @@ export default {
         });
 
         const responseHeaders = new Headers(backendResponse.headers);
-        responseHeaders.set('Access-Control-Allow-Origin', url.origin);
-        responseHeaders.set('Access-Control-Allow-Credentials', 'true');
+        if (originAllowed) {
+          responseHeaders.set('Access-Control-Allow-Origin', origin || url.origin);
+          responseHeaders.set('Access-Control-Allow-Credentials', 'true');
+          responseHeaders.set('Vary', 'Origin');
+        }
 
         const contentType = backendResponse.headers.get('content-type') || '';
 
@@ -60,6 +120,14 @@ export default {
           headers: responseHeaders,
         });
       } catch (err: any) {
+        const errorHeaders = new Headers({
+          'Content-Type': 'application/json',
+        });
+        if (originAllowed) {
+          errorHeaders.set('Access-Control-Allow-Origin', origin || url.origin);
+          errorHeaders.set('Access-Control-Allow-Credentials', 'true');
+          errorHeaders.set('Vary', 'Origin');
+        }
         return new Response(
           JSON.stringify({
             error: 'Backend gateway connection failed: ' + (err.message || 'Service unavailable'),
@@ -67,10 +135,7 @@ export default {
           }),
           {
             status: 502,
-            headers: {
-              'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': url.origin,
-            },
+            headers: errorHeaders,
           }
         );
       }

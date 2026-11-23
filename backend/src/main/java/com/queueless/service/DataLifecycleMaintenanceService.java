@@ -7,11 +7,16 @@ import com.queueless.repository.UserSessionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.concurrent.CompletableFuture;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -36,6 +41,9 @@ public class DataLifecycleMaintenanceService {
     private final UserSessionRepository userSessionRepository;
     private final CustomerPushSubscriptionRepository pushSubscriptionRepository;
     private final DataSource dataSource;
+
+    @Value("${queueless.cleanup.on-startup:false}")
+    private boolean cleanupOnStartup;
 
     @Autowired
     public DataLifecycleMaintenanceService(DeviceAuthChallengeRepository challengeRepository,
@@ -177,6 +185,34 @@ public class DataLifecycleMaintenanceService {
                 purgedChallenges, purgedIdempotency, purgedSessions, purgedPushSubs);
 
         return new CleanupStats(purgedChallenges, purgedIdempotency, purgedSessions, purgedPushSubs, true);
+    }
+
+    /**
+     * Optional startup catch-up trigger for ephemeral or scale-to-zero environments (such as Render Free tier).
+     * When instances spin down during scheduled maintenance hours (e.g. 03:00 AM UTC/IST),
+     * enabling this flag guarantees stale tokens and nonces are cleaned up asynchronously upon container wake-up
+     * without blocking application readiness or HTTP health probes.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void onApplicationReady() {
+        if (cleanupOnStartup) {
+            log.info("QueueLess startup cleanup enabled: triggering asynchronous maintenance catch-up...");
+            CompletableFuture.runAsync(() -> {
+                try {
+                    performMaintenanceCleanup();
+                } catch (Exception ex) {
+                    log.warn("Asynchronous startup catch-up maintenance encountered an error: {}", ex.getMessage());
+                }
+            });
+        }
+    }
+
+    public boolean isCleanupOnStartup() {
+        return cleanupOnStartup;
+    }
+
+    public void setCleanupOnStartup(boolean cleanupOnStartup) {
+        this.cleanupOnStartup = cleanupOnStartup;
     }
 
     public record CleanupStats(int purgedChallenges, int purgedIdempotencyKeys, int purgedSessions, int purgedPushSubscriptions, boolean executed) {

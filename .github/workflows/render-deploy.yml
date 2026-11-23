@@ -1,0 +1,71 @@
+name: QueueLess — Render Free Backend Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Deployment justification or change description'
+        required: false
+        default: 'Manual deployment trigger'
+
+concurrency:
+  group: render-backend-deployment
+  cancel-in-progress: false # Never interrupt an ongoing deployment
+
+permissions:
+  contents: read
+
+jobs:
+  # ===================================================================
+  # Trigger Render Backend Web Service Deployment
+  # ===================================================================
+  deploy-render:
+    name: Trigger Render Backend Deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate Render Deploy Hook Secret (Fail Closed)
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "FATAL: RENDER_DEPLOY_HOOK_URL secret is not configured in GitHub repository secrets."
+            echo "Please navigate to Settings -> Secrets and variables -> Actions and add RENDER_DEPLOY_HOOK_URL."
+            exit 1
+          fi
+          echo "RENDER_DEPLOY_HOOK_URL secret presence verified."
+
+      - name: Trigger Render Deploy Hook Webhook
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          DEPLOY_REASON: ${{ inputs.reason }}
+        run: |
+          echo "Dispatching deployment hook to Render for service 'queueless-backend'..."
+          echo "Reason: $DEPLOY_REASON"
+          HTTP_STATUS=$(curl -s -o render_response.json -w "%{http_code}" -X POST "$RENDER_DEPLOY_HOOK_URL")
+          echo "Render deploy hook HTTP status code: $HTTP_STATUS"
+          if [ -f render_response.json ]; then
+            echo "Render response:"
+            cat render_response.json
+            echo ""
+          fi
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "SUCCESS: Render deployment initiated successfully."
+          else
+            echo "FATAL: Render deploy hook returned non-2xx status code: $HTTP_STATUS"
+            exit 1
+          fi
+
+      - name: Deployment Instructions & Monitoring Notice
+        run: |
+          echo "=================================================================="
+          echo "Render Deployment Trigger Complete"
+          echo "Service: queueless-backend"
+          echo "Health Check Endpoint: /actuator/health"
+          echo "Render Dashboard: https://dashboard.render.com"
+          echo "Cloudflare Worker Reverse Proxy: /api/* -> Render backend URL"
+          echo "Note: Render Free build & container deployment typically takes 2-4 minutes."
+          echo "=================================================================="

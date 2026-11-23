@@ -30,6 +30,7 @@ public class CategoryChangeService {
     private final ShopRepository shopRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionService subscriptionService;
+    private final com.queueless.repository.PaymentRecordRepository paymentRecordRepository;
     private final Clock clock;
 
     public CategoryChangeService(BusinessCategoryChangeRequestRepository requestRepository,
@@ -37,12 +38,14 @@ public class CategoryChangeService {
                                  ShopRepository shopRepository,
                                  SubscriptionRepository subscriptionRepository,
                                  SubscriptionService subscriptionService,
+                                 com.queueless.repository.PaymentRecordRepository paymentRecordRepository,
                                  Clock clock) {
         this.requestRepository = requestRepository;
         this.auditRepository = auditRepository;
         this.shopRepository = shopRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.subscriptionService = subscriptionService;
+        this.paymentRecordRepository = paymentRecordRepository;
         this.clock = clock;
     }
 
@@ -174,6 +177,19 @@ public class CategoryChangeService {
         changeRequest.setStatus(CategoryChangeStatus.PENDING_VERIFICATION);
         requestRepository.save(changeRequest);
 
+        // Record unified PaymentRecord for Super Admin
+        com.queueless.entity.PaymentRecord payRec = new com.queueless.entity.PaymentRecord(
+                "CATEGORY_CHANGE",
+                shop.getOwner(),
+                shop,
+                null,
+                changeRequest.getAmount(),
+                cleanUtr,
+                subscriptionService.getConfiguredUpiId()
+        );
+        payRec.setNotes("Category change request for " + shop.getName() + " (" + changeRequest.getOldCategory() + " -> " + changeRequest.getRequestedCategory() + ")");
+        paymentRecordRepository.save(payRec);
+
         log.info("Payment reference '{}' submitted for category change request #{}", cleanUtr, changeRequest.getId());
 
         // Category remains UNCHANGED until admin approval!
@@ -263,6 +279,16 @@ public class CategoryChangeService {
         );
         auditRepository.save(audit);
 
+        // Keep unified PaymentRecord in sync
+        if (req.getPaymentReference() != null) {
+            paymentRecordRepository.findByPaymentReference(req.getPaymentReference()).ifPresent(p -> {
+                p.setStatus("APPROVED");
+                p.setReviewedAt(now);
+                p.setReviewedBy(adminIdentifier);
+                paymentRecordRepository.save(p);
+            });
+        }
+
         log.info("Category change request #{} APPROVED by {}. Shop #{} category updated: '{}' -> '{}'",
                 req.getId(), adminIdentifier, shop.getId(), oldCategory, newCategory);
     }
@@ -286,6 +312,17 @@ public class CategoryChangeService {
         req.setReviewedAt(now);
         req.setReviewedBy(adminIdentifier);
         requestRepository.save(req);
+
+        // Keep unified PaymentRecord in sync
+        if (req.getPaymentReference() != null) {
+            paymentRecordRepository.findByPaymentReference(req.getPaymentReference()).ifPresent(p -> {
+                p.setStatus("REJECTED");
+                p.setRejectionReason(reason);
+                p.setReviewedAt(now);
+                p.setReviewedBy(adminIdentifier);
+                paymentRecordRepository.save(p);
+            });
+        }
 
         // Original shop category is strictly preserved!
         log.info("Category change request #{} REJECTED by {}. Reason: {}",

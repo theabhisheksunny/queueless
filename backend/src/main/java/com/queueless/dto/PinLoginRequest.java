@@ -13,6 +13,7 @@ public class PinLoginRequest {
     private String pin;
 
     private String deviceFingerprint;
+    private String deviceRegistrationId;
 
     public PinLoginRequest() {}
 
@@ -25,6 +26,13 @@ public class PinLoginRequest {
         this.phone = phone;
         this.pin = pin;
         this.deviceFingerprint = deviceFingerprint;
+    }
+
+    public PinLoginRequest(String phone, String pin, String deviceFingerprint, String deviceRegistrationId) {
+        this.phone = phone;
+        this.pin = pin;
+        this.deviceFingerprint = deviceFingerprint;
+        this.deviceRegistrationId = deviceRegistrationId;
     }
 
     public String getPhone() {
@@ -49,5 +57,13 @@ public class PinLoginRequest {
 
     public void setDeviceFingerprint(String deviceFingerprint) {
         this.deviceFingerprint = deviceFingerprint;
+    }
+
+    public String getDeviceRegistrationId() {
+        return deviceRegistrationId;
+    }
+
+    public void setDeviceRegistrationId(String deviceRegistrationId) {
+        this.deviceRegistrationId = deviceRegistrationId;
     }
 }

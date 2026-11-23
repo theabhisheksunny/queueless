@@ -20,6 +20,11 @@ public class Subscription {
     @JoinColumn(name = "shop_id", nullable = false)
     private Shop shop;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id")
+    @org.hibernate.annotations.OnDelete(action = org.hibernate.annotations.OnDeleteAction.CASCADE)
+    private User owner;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private SubscriptionPlan planType;
@@ -77,6 +82,20 @@ public class Subscription {
     public Subscription(Shop shop, SubscriptionPlan planType, SubscriptionStatus status,
                         LocalDate startDate, LocalDate endDate, BigDecimal amount) {
         this.shop = shop;
+        if (shop != null && shop.getOwner() != null) {
+            this.owner = shop.getOwner();
+        }
+        this.planType = planType;
+        this.status = status;
+        this.startDate = startDate;
+        this.endDate = endDate;
+        this.amount = amount != null ? amount : BigDecimal.ZERO;
+    }
+
+    public Subscription(User owner, Shop shop, SubscriptionPlan planType, SubscriptionStatus status,
+                        LocalDate startDate, LocalDate endDate, BigDecimal amount) {
+        this.owner = owner;
+        this.shop = shop;
         this.planType = planType;
         this.status = status;
         this.startDate = startDate;
@@ -98,6 +117,14 @@ public class Subscription {
 
     public void setShop(Shop shop) {
         this.shop = shop;
+    }
+
+    public User getOwner() {
+        return owner;
+    }
+
+    public void setOwner(User owner) {
+        this.owner = owner;
     }
 
     public SubscriptionPlan getPlanType() {

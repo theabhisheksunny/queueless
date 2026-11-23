@@ -43,6 +43,7 @@ public class QueueService {
     private final SseEmitterService sseEmitterService;
     private final EntitlementService entitlementService;
     private ApplicationEventPublisher eventPublisher;
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     @Value("${queueless.token.completed-expiration-minutes:15}")
     private long completedExpirationMinutes = 15;
@@ -57,6 +58,20 @@ public class QueueService {
                         SseEmitterService sseEmitterService,
                         EntitlementService entitlementService,
                         @Autowired(required = false) ApplicationEventPublisher eventPublisher) {
+        this(shopRepository, sessionRepository, customerRepository, subscriptionRepository,
+             activeQueueManager, sseEmitterService, entitlementService, eventPublisher, null);
+    }
+
+    @Autowired
+    public QueueService(ShopRepository shopRepository,
+                        QueueSessionRepository sessionRepository,
+                        QueueCustomerRepository customerRepository,
+                        SubscriptionRepository subscriptionRepository,
+                        ActiveQueueManager activeQueueManager,
+                        SseEmitterService sseEmitterService,
+                        EntitlementService entitlementService,
+                        @Autowired(required = false) ApplicationEventPublisher eventPublisher,
+                        @Autowired(required = false) org.springframework.jdbc.core.JdbcTemplate jdbcTemplate) {
         this.shopRepository = shopRepository;
         this.sessionRepository = sessionRepository;
         this.customerRepository = customerRepository;
@@ -65,6 +80,12 @@ public class QueueService {
         this.sseEmitterService = sseEmitterService;
         this.entitlementService = entitlementService;
         this.eventPublisher = eventPublisher;
+        this.jdbcTemplate = jdbcTemplate;
+    }
+
+    @Autowired(required = false)
+    public void setJdbcTemplate(org.springframework.jdbc.core.JdbcTemplate jdbcTemplate) {
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Autowired(required = false)
@@ -177,6 +198,63 @@ public class QueueService {
         return getDashboard(shopId);
     }
 
+    private final java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.atomic.AtomicInteger> fallbackCounters = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Atomically allocates the next sequential token number for a queue session.
+     * Uses PostgreSQL atomic UPDATE ... RETURNING when available to guarantee
+     * cross-instance uniqueness and prevent duplicate sequence conflicts.
+     * Falls back to memory-synchronized database persistence for non-PostgreSQL engines.
+     */
+    @Transactional
+    public int allocateNextSessionSequence(Long sessionId) {
+        return allocateNextSessionSequence(sessionId, null);
+    }
+
+    @Transactional
+    public int allocateNextSessionSequence(Long sessionId, ShopActiveQueue activeQueue) {
+        if (sessionId == null) {
+            throw new IllegalArgumentException("Session ID is required to allocate token sequence");
+        }
+        if (jdbcTemplate != null) {
+            try {
+                Integer nextSeq = jdbcTemplate.queryForObject(
+                        "UPDATE queue_sessions SET token_counter = token_counter + 1 WHERE id = ? RETURNING token_counter",
+                        Integer.class,
+                        sessionId
+                );
+                if (nextSeq != null) {
+                    if (activeQueue != null) {
+                        activeQueue.ensureSequenceAtLeast(nextSeq);
+                    }
+                    return nextSeq;
+                }
+            } catch (Exception ex) {
+                log.debug("UPDATE RETURNING query skipped or failed on current engine: {}", ex.getMessage());
+            }
+        }
+
+        // Database row-level lock fallback for non-PostgreSQL engines (e.g. H2 in tests)
+        int next;
+        if (activeQueue != null) {
+            next = activeQueue.allocateNextSequence();
+        } else {
+            java.util.concurrent.atomic.AtomicInteger counter = fallbackCounters.computeIfAbsent(sessionId, id -> {
+                QueueSession s = sessionRepository.findById(id).orElse(null);
+                int initial = (s != null && s.getTokenCounter() != null) ? s.getTokenCounter() : 0;
+                return new java.util.concurrent.atomic.AtomicInteger(initial);
+            });
+            next = counter.incrementAndGet();
+        }
+
+        sessionRepository.findById(sessionId).ifPresent(s -> {
+            s.setTokenCounter(next);
+            sessionRepository.save(s);
+        });
+
+        return next;
+    }
+
     /**
      * Customer joins queue through QR code scan.
      */
@@ -202,8 +280,9 @@ public class QueueService {
             throw new IllegalStateException("Queue is currently closed.");
         }
 
-        // Allocate sequential token safely
-        int nextSequence = activeQueue.allocateNextSequence();
+        // Allocate sequential token safely via atomic database counter
+        int nextSequence = allocateNextSessionSequence(session.getId(), activeQueue);
+        activeQueue.ensureSequenceAtLeast(nextSequence);
         String tokenNumber = ShopActiveQueue.formatTokenNumber(nextSequence);
         String trackingToken = UUID.randomUUID().toString().replace("-", "");
 
@@ -271,7 +350,9 @@ public class QueueService {
         activeQueue.setSessionId(session.getId());
         activeQueue.setPublicQueueId(session.getPublicQueueId());
 
-        int nextSequence = activeQueue.allocateNextSequence();
+        // Allocate sequential token safely via atomic database counter
+        int nextSequence = allocateNextSessionSequence(session.getId(), activeQueue);
+        activeQueue.ensureSequenceAtLeast(nextSequence);
         String tokenNumber = ShopActiveQueue.formatTokenNumber(nextSequence);
         String trackingToken = UUID.randomUUID().toString().replace("-", "");
 

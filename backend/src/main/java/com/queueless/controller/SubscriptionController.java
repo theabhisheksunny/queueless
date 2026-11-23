@@ -25,16 +25,27 @@ public class SubscriptionController {
     }
 
     @GetMapping({"", "/status"})
-    public ResponseEntity<SubscriptionStatusResponse> getStatus(Principal principal) {
-        Shop shop = shopResolver.resolveShop(principal);
+    public ResponseEntity<SubscriptionStatusResponse> getStatus(
+            Principal principal,
+            @RequestParam(value = "shopId", required = false) Long paramShopId,
+            @RequestHeader(value = "X-Shop-Id", required = false) Long headerShopId) {
+        Long target = paramShopId != null ? paramShopId : headerShopId;
+        com.queueless.entity.User user = shopResolver.resolveUser(principal);
+        shopResolver.requireOwnerRole(user);
+        Shop shop = shopResolver.resolveShop(user, target);
         return ResponseEntity.ok(subscriptionService.getShopSubscriptionStatus(shop.getId()));
     }
 
     @PostMapping("/payment")
     public ResponseEntity<SubscriptionStatusResponse> submitPayment(
             Principal principal,
+            @RequestParam(value = "shopId", required = false) Long paramShopId,
+            @RequestHeader(value = "X-Shop-Id", required = false) Long headerShopId,
             @Valid @RequestBody SubscriptionPaymentSubmitRequest request) {
-        Shop shop = shopResolver.resolveShop(principal);
+        Long target = paramShopId != null ? paramShopId : headerShopId;
+        com.queueless.entity.User user = shopResolver.resolveUser(principal);
+        shopResolver.requireOwnerRole(user);
+        Shop shop = shopResolver.resolveShop(user, target);
         return ResponseEntity.ok(subscriptionService.submitPayment(shop.getId(), request));
     }
 }

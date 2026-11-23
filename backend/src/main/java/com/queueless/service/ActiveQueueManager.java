@@ -44,6 +44,14 @@ public class ActiveQueueManager {
             Long sessionId = activeSession != null ? activeSession.getId() : null;
             String publicQueueId = activeSession != null ? activeSession.getPublicQueueId() : null;
             int lastCounter = activeSession != null && activeSession.getTokenCounter() != null ? activeSession.getTokenCounter() : 0;
+            int maxSeq = lastCounter;
+            if (existingCustomers != null && !existingCustomers.isEmpty()) {
+                for (QueueCustomer qc : existingCustomers) {
+                    if (qc.getTokenSequence() != null && qc.getTokenSequence() > maxSeq) {
+                        maxSeq = qc.getTokenSequence();
+                    }
+                }
+            }
 
             ShopActiveQueue queue;
             if (existingQueue == null) {
@@ -55,7 +63,7 @@ public class ActiveQueueManager {
                         sessionId,
                         publicQueueId,
                         isOpen,
-                        lastCounter
+                        maxSeq
                 );
             } else {
                 queue = existingQueue;
@@ -63,6 +71,7 @@ public class ActiveQueueManager {
                 queue.setSessionId(sessionId);
                 queue.setPublicQueueId(publicQueueId);
                 queue.setOpen(isOpen);
+                queue.ensureSequenceAtLeast(maxSeq);
             }
 
             if (publicQueueId != null) {

@@ -51,15 +51,57 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .headers(headers -> headers.frameOptions(HeadersConfigurer.FrameOptionsConfig::disable)) // for H2 console
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint((request, response, authException) -> {
+                            if (request.getRequestURI().startsWith("/api/admin/")) {
+                                response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_FORBIDDEN);
+                                response.setContentType("application/json");
+                                response.setCharacterEncoding("UTF-8");
+                                String correlationId = java.util.UUID.randomUUID().toString();
+                                String json = String.format(
+                                        "{\"timestamp\":\"%s\",\"status\":403,\"error\":\"Forbidden\",\"message\":\"Access restricted: You do not have permission to access this resource.\",\"correlationId\":\"%s\",\"path\":\"%s\"}",
+                                        java.time.LocalDateTime.now(),
+                                        correlationId,
+                                        request.getRequestURI()
+                                );
+                                response.getWriter().write(json);
+                                return;
+                            }
+                            response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_UNAUTHORIZED);
+                            response.setContentType("application/json");
+                            response.setCharacterEncoding("UTF-8");
+                            String correlationId = java.util.UUID.randomUUID().toString();
+                            String json = String.format(
+                                    "{\"timestamp\":\"%s\",\"status\":401,\"error\":\"Unauthorized\",\"message\":\"Your session has ended or is invalid. Please sign in again.\",\"correlationId\":\"%s\",\"path\":\"%s\"}",
+                                    java.time.LocalDateTime.now(),
+                                    correlationId,
+                                    request.getRequestURI()
+                            );
+                            response.getWriter().write(json);
+                        })
+                        .accessDeniedHandler((request, response, accessDeniedException) -> {
+                            response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_FORBIDDEN);
+                            response.setContentType("application/json");
+                            response.setCharacterEncoding("UTF-8");
+                            String correlationId = java.util.UUID.randomUUID().toString();
+                            String json = String.format(
+                                    "{\"timestamp\":\"%s\",\"status\":403,\"error\":\"Forbidden\",\"message\":\"Access restricted: You do not have permission to access this resource.\",\"correlationId\":\"%s\",\"path\":\"%s\"}",
+                                    java.time.LocalDateTime.now(),
+                                    correlationId,
+                                    request.getRequestURI()
+                            );
+                            response.getWriter().write(json);
+                        })
+                )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/public/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
-                        .requestMatchers("/api/admin/**").permitAll()
+                        .requestMatchers("/api/admin/**").hasAnyAuthority("ROLE_SUPER_ADMIN", "ROLE_ADMIN")
                         .requestMatchers("/h2-console/**").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/owner/**", "/api/queue/**").authenticated()
-                        .requestMatchers("/", "/index.html", "/sw.js", "/manifest.webmanifest", "/*.webmanifest", "/*.js", "/assets/**", "/*.svg", "/*.ico", "/*.json", "/join/**", "/track/**", "/login", "/subscription", "/settings", "/admin").permitAll()
+                        .requestMatchers("/", "/index.html", "/sw.js", "/manifest.webmanifest", "/*.webmanifest", "/*.js", "/assets/**", "/*.svg", "/*.ico", "/*.json", "/join/**", "/track/**", "/login", "/subscription", "/settings", "/admin", "/super-admin", "/super-admin/**").permitAll()
                         .anyRequest().permitAll()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
@@ -80,7 +122,7 @@ public class SecurityConfig {
         configuration.setAllowedOriginPatterns(origins.isEmpty() ? List.of("*") : origins);
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "X-Requested-With", "Accept", "X-Admin-Key"));
-        configuration.setExposedHeaders(Arrays.asList("Authorization", "X-Admin-Key"));
+        configuration.setExposedHeaders(List.of("Authorization"));
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

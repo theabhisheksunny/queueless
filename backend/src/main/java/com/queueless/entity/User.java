@@ -28,6 +28,19 @@ public class User {
     @Column(nullable = false, length = 20)
     private UserRole role = UserRole.ROLE_OWNER;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id")
+    private User owner;
+
+    @Column(nullable = false, length = 20)
+    private String status = "ACTIVE"; // ACTIVE, REVOKED
+
+    @Column(name = "active_session_id", length = 64)
+    private String activeSessionId;
+
+    @Column(name = "temporary_pin", nullable = false)
+    private Boolean temporaryPin = false;
+
     @Column(name = "failed_pin_attempts")
     private Integer failedPinAttempts = 0;
 
@@ -175,5 +188,45 @@ public class User {
 
     public LocalDateTime getUpdatedAt() {
         return updatedAt;
+    }
+
+    public User getOwner() {
+        return owner;
+    }
+
+    public void setOwner(User owner) {
+        this.owner = owner;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
+
+    public boolean isRevoked() {
+        return "REVOKED".equalsIgnoreCase(this.status);
+    }
+
+    public String getActiveSessionId() {
+        return activeSessionId;
+    }
+
+    public void setActiveSessionId(String activeSessionId) {
+        this.activeSessionId = activeSessionId;
+    }
+
+    public Boolean getTemporaryPin() {
+        return temporaryPin;
+    }
+
+    public boolean isTemporaryPin() {
+        return Boolean.TRUE.equals(this.temporaryPin);
+    }
+
+    public void setTemporaryPin(Boolean temporaryPin) {
+        this.temporaryPin = temporaryPin;
     }
 }

@@ -50,16 +50,23 @@ public class JwtTokenProvider {
     }
 
     public String generateTokenForUsername(String username) {
+        return generateTokenForUsername(username, null);
+    }
+
+    public String generateTokenForUsername(String username, String sessionId) {
         long nowMillis = clock.millis();
         Date now = new Date(nowMillis);
         Date validity = new Date(nowMillis + validityInMilliseconds);
 
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .subject(username)
                 .issuedAt(now)
-                .expiration(validity)
-                .signWith(key)
-                .compact();
+                .expiration(validity);
+        if (sessionId != null) {
+            builder.claim("sid", sessionId);
+        }
+
+        return builder.signWith(key).compact();
     }
 
     public String getUsernameFromToken(String token) {
@@ -70,6 +77,20 @@ public class JwtTokenProvider {
                 .parseSignedClaims(token)
                 .getPayload();
         return claims.getSubject();
+    }
+
+    public String getSessionIdFromToken(String token) {
+        try {
+            Claims claims = Jwts.parser()
+                    .clock(() -> Date.from(clock.instant()))
+                    .verifyWith(key)
+                    .build()
+                    .parseSignedClaims(token)
+                    .getPayload();
+            return claims.get("sid", String.class);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public Date getIssuedAt(String token) {

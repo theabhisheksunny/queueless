@@ -13,6 +13,8 @@ public class AuthResponse {
     private String category;
     private boolean subscriptionActive;
     private long subscriptionDaysRemaining;
+    private java.util.List<BusinessResponse> businesses = new java.util.ArrayList<>();
+    private java.util.List<BranchSummaryResponse> branches = new java.util.ArrayList<>();
 
     public AuthResponse() {}
 
@@ -123,5 +125,21 @@ public class AuthResponse {
 
     public void setSubscriptionDaysRemaining(long subscriptionDaysRemaining) {
         this.subscriptionDaysRemaining = subscriptionDaysRemaining;
+    }
+
+    public java.util.List<BusinessResponse> getBusinesses() {
+        return businesses;
+    }
+
+    public void setBusinesses(java.util.List<BusinessResponse> businesses) {
+        this.businesses = businesses;
+    }
+
+    public java.util.List<BranchSummaryResponse> getBranches() {
+        return branches;
+    }
+
+    public void setBranches(java.util.List<BranchSummaryResponse> branches) {
+        this.branches = branches;
     }
 }

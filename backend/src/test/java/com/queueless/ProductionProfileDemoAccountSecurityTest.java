@@ -14,13 +14,25 @@ import org.springframework.test.context.ActiveProfiles;
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest(properties = {
-        "spring.profiles.active=prod"
+        "spring.profiles.active=prod",
+        "spring.datasource.url=jdbc:h2:mem:queueless_prod_test;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH",
+        "spring.datasource.driver-class-name=org.h2.Driver",
+        "spring.datasource.username=sa",
+        "spring.datasource.password=",
+        "spring.flyway.user=sa",
+        "spring.flyway.password=",
+        "app.datasource.isolation-check.enabled=false",
+        "app.jwt.secret=test-jwt-secret-key-for-production-profile-testing-32bytes!",
+        "app.admin.key=test-admin-key-2026"
 })
 @ActiveProfiles("prod")
 class ProductionProfileDemoAccountSecurityTest {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private com.queueless.repository.UserSessionRepository userSessionRepository;
 
     @Autowired
     private AuthService authService;
@@ -82,7 +94,10 @@ class ProductionProfileDemoAccountSecurityTest {
             assertNotNull(authResponse);
             assertNotNull(authResponse.getToken());
         } finally {
-            userRepository.delete(user);
+            if (user != null && user.getId() != null) {
+                userSessionRepository.deleteAll(userSessionRepository.findAllByUserId(user.getId()));
+                userRepository.delete(user);
+            }
         }
     }
 }

@@ -28,8 +28,14 @@ public class ShopController {
     }
 
     @GetMapping
-    public ResponseEntity<Shop> getSettings(Principal principal) {
-        Shop shop = shopResolver.resolveShop(principal);
+    public ResponseEntity<Shop> getSettings(
+            Principal principal,
+            @RequestParam(value = "shopId", required = false) Long paramShopId,
+            @RequestHeader(value = "X-Shop-Id", required = false) Long headerShopId) {
+        Long target = paramShopId != null ? paramShopId : headerShopId;
+        com.queueless.entity.User user = shopResolver.resolveUser(principal);
+        shopResolver.requireOwnerRole(user);
+        Shop shop = shopResolver.resolveShop(user, target);
         entitlementService.requireActiveEntitlement(shop.getId());
         return ResponseEntity.ok(shopService.getShop(shop.getId()));
     }
@@ -37,8 +43,13 @@ public class ShopController {
     @PutMapping
     public ResponseEntity<Shop> updateSettings(
             Principal principal,
+            @RequestParam(value = "shopId", required = false) Long paramShopId,
+            @RequestHeader(value = "X-Shop-Id", required = false) Long headerShopId,
             @Valid @RequestBody ShopSettingsRequest request) {
-        Shop shop = shopResolver.resolveShop(principal);
+        Long target = paramShopId != null ? paramShopId : headerShopId;
+        com.queueless.entity.User user = shopResolver.resolveUser(principal);
+        shopResolver.requireOwnerRole(user);
+        Shop shop = shopResolver.resolveShop(user, target);
         entitlementService.requireActiveEntitlement(shop.getId());
         Shop updated = shopService.updateShopSettings(shop.getId(), request);
         return ResponseEntity.ok(updated);

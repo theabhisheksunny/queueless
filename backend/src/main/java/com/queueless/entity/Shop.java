@@ -2,6 +2,7 @@ package com.queueless.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
@@ -13,18 +14,41 @@ public class Shop {
     private Long id;
 
     @JsonIgnore
-    @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "owner_id", nullable = false, unique = true)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id", nullable = false)
     private User owner;
+
+    @JsonIgnore
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "business_id")
+    private Business business;
 
     @Column(nullable = false, length = 150)
     private String name;
+
+    @Column(name = "branch_name", length = 150)
+    private String branchName;
+
+    @Column(length = 255)
+    private String address;
+
+    @Column(length = 20)
+    private String phone;
 
     @Column(nullable = false, length = 80)
     private String category = "General";
 
     @Column(nullable = false)
     private Integer avgServiceDurationMinutes = 15;
+
+    @Column(name = "is_primary", nullable = false)
+    private Boolean isPrimary = false;
+
+    @Column(name = "registration_status", nullable = false, length = 30)
+    private String registrationStatus = "REGISTERED"; // REGISTERED, PAYMENT_PENDING
+
+    @Column(name = "registration_fee_paid", nullable = false, precision = 10, scale = 2)
+    private BigDecimal registrationFeePaid = BigDecimal.ZERO;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -101,5 +125,69 @@ public class Shop {
 
     public LocalDateTime getUpdatedAt() {
         return updatedAt;
+    }
+
+    public Business getBusiness() {
+        return business;
+    }
+
+    public void setBusiness(Business business) {
+        this.business = business;
+    }
+
+    public String getBranchName() {
+        return branchName;
+    }
+
+    public void setBranchName(String branchName) {
+        this.branchName = branchName;
+    }
+
+    public String getAddress() {
+        return address;
+    }
+
+    public void setAddress(String address) {
+        this.address = address;
+    }
+
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = phone;
+    }
+
+    public Boolean getIsPrimary() {
+        return isPrimary;
+    }
+
+    public boolean isPrimary() {
+        return Boolean.TRUE.equals(this.isPrimary);
+    }
+
+    public void setIsPrimary(Boolean isPrimary) {
+        this.isPrimary = isPrimary;
+    }
+
+    public String getRegistrationStatus() {
+        return registrationStatus;
+    }
+
+    public void setRegistrationStatus(String registrationStatus) {
+        this.registrationStatus = registrationStatus;
+    }
+
+    public boolean isRegistered() {
+        return "REGISTERED".equalsIgnoreCase(this.registrationStatus);
+    }
+
+    public BigDecimal getRegistrationFeePaid() {
+        return registrationFeePaid;
+    }
+
+    public void setRegistrationFeePaid(BigDecimal registrationFeePaid) {
+        this.registrationFeePaid = registrationFeePaid;
     }
 }

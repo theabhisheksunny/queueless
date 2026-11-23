@@ -24,8 +24,12 @@ public class CustomUserDetailsService implements UserDetailsService {
         User user = userRepository.findByIdentifier(identifier)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with identifier: " + identifier));
 
+        String principalUsername = (user.getRole() == com.queueless.entity.UserRole.ROLE_SUPER_ADMIN && user.getEmail() != null)
+                ? user.getEmail()
+                : (user.getPhone() != null ? user.getPhone() : user.getEmail());
+
         return new org.springframework.security.core.userdetails.User(
-                user.getPhone() != null ? user.getPhone() : user.getEmail(),
+                principalUsername,
                 user.getPassword(),
                 Collections.singletonList(new SimpleGrantedAuthority(user.getRole().name()))
         );

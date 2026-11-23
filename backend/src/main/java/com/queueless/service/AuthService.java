@@ -3,6 +3,7 @@ package com.queueless.service;
 import com.queueless.dto.*;
 import com.queueless.entity.*;
 import com.queueless.exception.AccountLockedException;
+import com.queueless.exception.DeviceMismatchException;
 import com.queueless.exception.TrialAlreadyConsumedException;
 import com.queueless.repository.*;
 import com.queueless.security.JwtTokenProvider;
@@ -17,7 +18,10 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 public class AuthService {
@@ -33,6 +37,13 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider tokenProvider;
+    private final BusinessRepository businessRepository;
+    private final ShopMembershipRepository membershipRepository;
+    private final SubscriptionSeatRepository seatRepository;
+    private final UserSessionRepository userSessionRepository;
+    private final PaymentRecordRepository paymentRecordRepository;
+    private final BranchService branchService;
+    private final DeviceRegistrationRepository deviceRegistrationRepository;
     private Clock clock;
 
     public AuthService(UserRepository userRepository,
@@ -46,6 +57,13 @@ public class AuthService {
                        PasswordEncoder passwordEncoder,
                        AuthenticationManager authenticationManager,
                        JwtTokenProvider tokenProvider,
+                       BusinessRepository businessRepository,
+                       ShopMembershipRepository membershipRepository,
+                       SubscriptionSeatRepository seatRepository,
+                       UserSessionRepository userSessionRepository,
+                       PaymentRecordRepository paymentRecordRepository,
+                       BranchService branchService,
+                       DeviceRegistrationRepository deviceRegistrationRepository,
                        Clock clock) {
         this.userRepository = userRepository;
         this.shopRepository = shopRepository;
@@ -58,6 +76,13 @@ public class AuthService {
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
         this.tokenProvider = tokenProvider;
+        this.businessRepository = businessRepository;
+        this.membershipRepository = membershipRepository;
+        this.seatRepository = seatRepository;
+        this.userSessionRepository = userSessionRepository;
+        this.paymentRecordRepository = paymentRecordRepository;
+        this.branchService = branchService;
+        this.deviceRegistrationRepository = deviceRegistrationRepository;
         this.clock = clock;
     }
 
@@ -131,15 +156,29 @@ public class AuthService {
         user.setLastLoginAt(nowUtc);
         user.setLastDeviceFingerprint(request.getDeviceFingerprint());
         user.setFailedPinAttempts(0);
+        String sessionId = UUID.randomUUID().toString();
+        user.setActiveSessionId(sessionId);
         user = userRepository.save(user);
 
-        // Create Shop (Duplicate shop names are permitted; shops are strictly keyed by internal shopId)
+        UserSession userSession = new UserSession(user, sessionId, request.getDeviceFingerprint(), null, null);
+        userSessionRepository.save(userSession);
+
+        // Create default Business for owner
+        String businessName = request.getShopName() != null ? request.getShopName().trim() : "My Business";
+        Business business = new Business(user, businessName);
+        business = businessRepository.save(business);
+
+        // Create primary Shop
         Shop shop = new Shop(
                 user,
                 request.getShopName() != null ? request.getShopName().trim() : "My Shop",
                 request.getCategory() != null ? request.getCategory().trim() : "General",
                 request.getAvgServiceDurationMinutes() != null ? request.getAvgServiceDurationMinutes() : 15
         );
+        shop.setBusiness(business);
+        shop.setIsPrimary(true);
+        shop.setRegistrationStatus("REGISTERED");
+        shop.setRegistrationFeePaid(BigDecimal.ZERO);
         shop = shopRepository.save(shop);
 
         // Grant exactly 7 calendar days trial
@@ -148,6 +187,7 @@ public class AuthService {
         LocalDateTime trialEndsAt = nowUtc.plusDays(7);
 
         Subscription trial = new Subscription(
+                user,
                 shop,
                 SubscriptionPlan.TRIAL,
                 SubscriptionStatus.ACTIVE,
@@ -176,9 +216,9 @@ public class AuthService {
         trialEligibilityLedgerRepository.save(ledger);
 
         String tokenSubject = user.getPhone() != null ? user.getPhone() : user.getEmail();
-        String token = tokenProvider.generateTokenForUsername(tokenSubject);
+        String token = tokenProvider.generateTokenForUsername(tokenSubject, sessionId);
 
-        return new AuthResponse(
+        AuthResponse resp = new AuthResponse(
                 token,
                 user.getEmail(),
                 user.getPhone(),
@@ -190,6 +230,9 @@ public class AuthService {
                 true,
                 7
         );
+        resp.setBusinesses(branchService.getBusinessesAndBranches(user.getId()));
+        resp.setBranches(branchService.getAllBranches(user.getId()));
+        return resp;
     }
 
     /**
@@ -226,6 +269,25 @@ public class AuthService {
         User user = userOpt.get();
         LocalDateTime now = LocalDateTime.now(clock);
 
+        if (user.isRevoked()) {
+            throw new BadCredentialsException("Your account access has been revoked by the owner.");
+        }
+
+        if (user.getRole() == UserRole.ROLE_STAFF) {
+            SubscriptionSeat seat = seatRepository.findByAssignedUserIdAndStatus(user.getId(), SubscriptionStatus.ACTIVE).orElse(null);
+            LocalDate today = LocalDate.now(clock);
+            if (seat != null) {
+                if (seat.getEndDate() == null || today.isAfter(seat.getEndDate())) {
+                    throw new BadCredentialsException("Your staff seat subscription has expired. Please contact your shop owner.");
+                }
+            } else {
+                // Staff is on the 1 included seat covered by owner's main subscription
+                if (user.getOwner() == null || !entitlementService.hasActiveOwnerEntitlement(user.getOwner().getId())) {
+                    throw new BadCredentialsException("Your shop's main subscription has expired. Please contact your shop owner.");
+                }
+            }
+        }
+
         // Lockout check
         if (user.getPinLockedUntil() != null && user.getPinLockedUntil().isAfter(now)) {
             long minutesRemaining = ChronoUnit.MINUTES.between(now, user.getPinLockedUntil()) + 1;
@@ -257,6 +319,26 @@ public class AuthService {
         // Reset failed attempts on success
         user.setFailedPinAttempts(0);
         user.setPinLockedUntil(null);
+
+        if (user.isTemporaryPin()) {
+            throw new BadCredentialsException("First-time device enrollment required. Please complete first-time enrollment using your temporary PIN.");
+        }
+
+        // Device-bound check if active device is enrolled
+        Optional<DeviceRegistration> activeDeviceOpt = deviceRegistrationRepository.findByUserIdAndEnrollmentStatus(user.getId(), "ACTIVE");
+        if (activeDeviceOpt.isPresent()) {
+            DeviceRegistration activeDevice = activeDeviceOpt.get();
+            String presentedDrid = request.getDeviceRegistrationId();
+            if (presentedDrid == null || presentedDrid.isBlank() || !presentedDrid.equals(activeDevice.getDeviceRegistrationId())) {
+                throw new DeviceMismatchException(
+                        "Login blocked: This account is enrolled on another device (" + activeDevice.getDeviceName() + "). " +
+                        "To use this device, a device replacement request must be submitted and approved by your shop owner or an administrator."
+                );
+            }
+            activeDevice.setLastActiveAt(now);
+            deviceRegistrationRepository.save(activeDevice);
+        }
+
         user.setLastLoginAt(now);
         if (clientIp != null && !clientIp.isBlank()) {
             user.setLastLoginIp(clientIp);
@@ -264,10 +346,21 @@ public class AuthService {
         if (request.getDeviceFingerprint() != null && !request.getDeviceFingerprint().isBlank()) {
             user.setLastDeviceFingerprint(request.getDeviceFingerprint());
         }
+
+        // Single active device session enforcement
+        String sessionId = UUID.randomUUID().toString();
+        userSessionRepository.findByUserIdAndStatus(user.getId(), "ACTIVE").ifPresent(old -> {
+            old.setStatus("REVOKED");
+            old.setRevokedAt(now);
+            userSessionRepository.save(old);
+        });
+        UserSession newSession = new UserSession(user, sessionId, request.getDeviceFingerprint(), clientIp, null);
+        userSessionRepository.save(newSession);
+        user.setActiveSessionId(sessionId);
         userRepository.save(user);
 
         String tokenSubject = user.getPhone() != null ? user.getPhone() : user.getEmail();
-        String token = tokenProvider.generateTokenForUsername(tokenSubject);
+        String token = tokenProvider.generateTokenForUsername(tokenSubject, sessionId);
 
         return buildAuthResponse(token, user);
     }
@@ -279,6 +372,25 @@ public class AuthService {
                 .orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
 
         LocalDateTime now = LocalDateTime.now(clock);
+
+        if (user.isRevoked()) {
+            throw new BadCredentialsException("Your account access has been revoked by the owner.");
+        }
+
+        if (user.getRole() == UserRole.ROLE_STAFF) {
+            SubscriptionSeat seat = seatRepository.findByAssignedUserIdAndStatus(user.getId(), SubscriptionStatus.ACTIVE).orElse(null);
+            LocalDate today = LocalDate.now(clock);
+            if (seat != null) {
+                if (seat.getEndDate() == null || today.isAfter(seat.getEndDate())) {
+                    throw new BadCredentialsException("Your staff seat subscription has expired. Please contact your shop owner.");
+                }
+            } else {
+                // Staff is on the 1 included seat covered by owner's main subscription
+                if (user.getOwner() == null || !entitlementService.hasActiveOwnerEntitlement(user.getOwner().getId())) {
+                    throw new BadCredentialsException("Your shop's main subscription has expired. Please contact your shop owner.");
+                }
+            }
+        }
         if (user.getPinLockedUntil() != null && user.getPinLockedUntil().isAfter(now)) {
             long minutesRemaining = ChronoUnit.MINUTES.between(now, user.getPinLockedUntil()) + 1;
             throw new AccountLockedException("Account temporarily locked due to multiple failed attempts. Please try again after " + minutesRemaining + " minute(s) or reset your PIN.");
@@ -303,10 +415,21 @@ public class AuthService {
         user.setFailedPinAttempts(0);
         user.setPinLockedUntil(null);
         user.setLastLoginAt(now);
+
+        // Single active device session enforcement
+        String sessionId = UUID.randomUUID().toString();
+        userSessionRepository.findByUserIdAndStatus(user.getId(), "ACTIVE").ifPresent(old -> {
+            old.setStatus("REVOKED");
+            old.setRevokedAt(now);
+            userSessionRepository.save(old);
+        });
+        UserSession newSession = new UserSession(user, sessionId, null, null, null);
+        userSessionRepository.save(newSession);
+        user.setActiveSessionId(sessionId);
         userRepository.save(user);
 
         String tokenSubject = user.getPhone() != null ? user.getPhone() : user.getEmail();
-        String token = tokenProvider.generateTokenForUsername(tokenSubject);
+        String token = tokenProvider.generateTokenForUsername(tokenSubject, sessionId);
 
         return buildAuthResponse(token, user);
     }
@@ -396,7 +519,18 @@ public class AuthService {
     }
 
     private AuthResponse buildAuthResponse(String token, User user) {
-        Shop shop = shopRepository.findByOwnerId(user.getId()).orElse(null);
+        Shop shop = null;
+        if (user.getRole() == UserRole.ROLE_OWNER || user.getRole() == UserRole.ROLE_ADMIN) {
+            shop = shopRepository.findFirstByOwnerIdOrderByIsPrimaryDescCreatedAtAsc(user.getId()).orElse(null);
+            if (shop == null) {
+                shop = shopRepository.findByOwnerId(user.getId()).orElse(null);
+            }
+        } else if (user.getRole() == UserRole.ROLE_STAFF) {
+            List<ShopMembership> memberships = membershipRepository.findAllByUserIdAndStatus(user.getId(), "ACTIVE");
+            if (!memberships.isEmpty()) {
+                shop = memberships.get(0).getShop();
+            }
+        }
 
         Long shopId = shop != null ? shop.getId() : null;
         String shopName = shop != null ? shop.getName() : null;
@@ -405,7 +539,17 @@ public class AuthService {
         boolean activeSubscription = false;
         long daysRemaining = 0;
 
-        if (shop != null) {
+        if (user.getRole() == UserRole.ROLE_OWNER && user.getId() != null) {
+            activeSubscription = entitlementService.hasActiveOwnerEntitlement(user.getId());
+            Subscription sub = subscriptionRepository.findTopByOwnerIdOrderByEndDateDesc(user.getId()).orElse(null);
+            if (sub == null && shop != null) {
+                sub = subscriptionRepository.findTopByShopIdOrderByEndDateDesc(shop.getId()).orElse(null);
+            }
+            if (activeSubscription && sub != null && sub.getEndDate() != null) {
+                LocalDate today = LocalDate.now(clock);
+                daysRemaining = Math.max(0, ChronoUnit.DAYS.between(today, sub.getEndDate()));
+            }
+        } else if (shop != null) {
             activeSubscription = entitlementService.hasActiveEntitlement(shop.getId());
             Subscription sub = subscriptionRepository.findTopByShopIdOrderByEndDateDesc(shop.getId()).orElse(null);
             if (activeSubscription && sub != null && sub.getEndDate() != null) {
@@ -414,7 +558,7 @@ public class AuthService {
             }
         }
 
-        return new AuthResponse(
+        AuthResponse resp = new AuthResponse(
                 token,
                 user.getEmail(),
                 user.getPhone(),
@@ -426,6 +570,28 @@ public class AuthService {
                 activeSubscription,
                 daysRemaining
         );
+
+        if (user.getRole() == UserRole.ROLE_OWNER) {
+            resp.setBusinesses(branchService.getBusinessesAndBranches(user.getId()));
+            resp.setBranches(branchService.getAllBranches(user.getId()));
+        } else if (user.getRole() == UserRole.ROLE_STAFF) {
+            List<ShopMembership> memberships = membershipRepository.findAllByUserIdAndStatus(user.getId(), "ACTIVE");
+            List<BranchSummaryResponse> staffBranches = new ArrayList<>();
+            for (ShopMembership m : memberships) {
+                BranchSummaryResponse b = new BranchSummaryResponse();
+                Shop s = m.getShop();
+                b.setId(s.getId());
+                b.setName(s.getName());
+                b.setBranchName(s.getBranchName() != null ? s.getBranchName() : s.getName());
+                b.setCategory(s.getCategory());
+                b.setIsPrimary(s.isPrimary());
+                b.setRegistrationStatus(s.getRegistrationStatus());
+                staffBranches.add(b);
+            }
+            resp.setBranches(staffBranches);
+        }
+
+        return resp;
     }
 
     /**
@@ -447,16 +613,23 @@ public class AuthService {
             });
         }
 
-        Shop shop = shopRepository.findByOwnerId(user.getId()).orElse(null);
-        if (shop != null) {
-            subscriptionRepository.deleteAll(subscriptionRepository.findByShopIdOrderByCreatedAtDesc(shop.getId()));
-            var sessions = sessionRepository.findByShopIdOrderBySessionDateDesc(shop.getId());
+        userSessionRepository.deleteAllByUserId(user.getId());
+        membershipRepository.deleteAllByUserId(user.getId());
+        paymentRecordRepository.deleteAll(paymentRecordRepository.findAllByOwnerIdOrderByCreatedAtDesc(user.getId()));
+        seatRepository.deleteAll(seatRepository.findAllByOwnerId(user.getId()));
+
+        List<Shop> allShops = shopRepository.findAllByOwnerIdOrderByCreatedAtAsc(user.getId());
+        for (Shop s : allShops) {
+            subscriptionRepository.deleteAll(subscriptionRepository.findByShopIdOrderByCreatedAtDesc(s.getId()));
+            var sessions = sessionRepository.findByShopIdOrderBySessionDateDesc(s.getId());
             for (var sess : sessions) {
                 customerRepository.deleteAll(customerRepository.findByQueueSessionIdOrderByTokenSequenceAsc(sess.getId()));
             }
             sessionRepository.deleteAll(sessions);
-            shopRepository.delete(shop);
+            shopRepository.delete(s);
         }
+
+        businessRepository.deleteAll(businessRepository.findAllByOwnerIdOrderByCreatedAtAsc(user.getId()));
 
         userRepository.delete(user);
     }

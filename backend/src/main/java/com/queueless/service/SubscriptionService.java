@@ -3,8 +3,12 @@ package com.queueless.service;
 import com.queueless.dto.*;
 import com.queueless.entity.*;
 import com.queueless.repository.ApplicationSettingRepository;
+import com.queueless.repository.PaymentRecordRepository;
 import com.queueless.repository.ShopRepository;
 import com.queueless.repository.SubscriptionRepository;
+import com.queueless.config.CacheConfig;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,8 +17,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 @Service
 public class SubscriptionService {
@@ -32,15 +35,18 @@ public class SubscriptionService {
     private final SubscriptionRepository subscriptionRepository;
     private final ShopRepository shopRepository;
     private final ApplicationSettingRepository settingRepository;
+    private final PaymentRecordRepository paymentRecordRepository;
     private Clock clock;
 
     public SubscriptionService(SubscriptionRepository subscriptionRepository,
                                ShopRepository shopRepository,
                                ApplicationSettingRepository settingRepository,
+                               PaymentRecordRepository paymentRecordRepository,
                                Clock clock) {
         this.subscriptionRepository = subscriptionRepository;
         this.shopRepository = shopRepository;
         this.settingRepository = settingRepository;
+        this.paymentRecordRepository = paymentRecordRepository;
         this.clock = clock;
     }
 
@@ -48,24 +54,28 @@ public class SubscriptionService {
         this.clock = clock;
     }
 
+    @Cacheable(cacheNames = CacheConfig.CACHE_APP_SETTINGS, key = "'upi_id'")
     public String getConfiguredUpiId() {
         return settingRepository.findBySettingKey(KEY_UPI_ID)
                 .map(ApplicationSetting::getSettingValue)
                 .orElse(DEFAULT_UPI_ID);
     }
 
+    @Cacheable(cacheNames = CacheConfig.CACHE_APP_SETTINGS, key = "'upi_name'")
     public String getConfiguredUpiName() {
         return settingRepository.findBySettingKey(KEY_UPI_NAME)
                 .map(ApplicationSetting::getSettingValue)
                 .orElse(DEFAULT_UPI_NAME);
     }
 
+    @Cacheable(cacheNames = CacheConfig.CACHE_APP_SETTINGS, key = "'monthly_price'")
     public BigDecimal getConfiguredMonthlyPrice() {
         return settingRepository.findBySettingKey(KEY_MONTHLY_PRICE)
                 .map(s -> new BigDecimal(s.getSettingValue()))
                 .orElse(DEFAULT_MONTHLY_PRICE);
     }
 
+    @Cacheable(cacheNames = CacheConfig.CACHE_APP_SETTINGS, key = "'yearly_price'")
     public BigDecimal getConfiguredYearlyPrice() {
         return settingRepository.findBySettingKey(KEY_YEARLY_PRICE)
                 .map(s -> new BigDecimal(s.getSettingValue()))
@@ -99,7 +109,7 @@ public class SubscriptionService {
             response.setTrialEndsAt(sub.getTrialEndsAt());
             response.setTrialConsumedAt(sub.getTrialConsumedAt());
 
-            if (response.getPendingPaymentReference() == null) {
+            if (response.getPendingPaymentReference() == null && sub.getStatus() == SubscriptionStatus.PENDING_APPROVAL) {
                 response.setPendingPaymentReference(sub.getPaymentReference());
             }
 
@@ -137,10 +147,16 @@ public class SubscriptionService {
         Shop shop = shopRepository.findById(shopId)
                 .orElseThrow(() -> new IllegalArgumentException("Shop not found with ID: " + shopId));
 
+        String utr = request.getPaymentReference().trim();
+        if (paymentRecordRepository.existsByPaymentReferenceAndStatus(utr, "APPROVED")) {
+            throw new IllegalArgumentException("This payment reference / UTR has already been approved for another payment.");
+        }
+
         BigDecimal amount = request.getPlanType() == SubscriptionPlan.YEARLY ?
                 getConfiguredYearlyPrice() : getConfiguredMonthlyPrice();
 
         Subscription sub = new Subscription(
+                shop.getOwner(),
                 shop,
                 request.getPlanType(),
                 SubscriptionStatus.PENDING_APPROVAL,
@@ -148,14 +164,28 @@ public class SubscriptionService {
                 LocalDate.now(), // will be updated when admin approves
                 amount
         );
-        sub.setPaymentReference(request.getPaymentReference().trim());
+        sub.setPaymentReference(utr);
         sub.setPaymentUpiId(request.getPaymentUpiId() != null ? request.getPaymentUpiId().trim() : getConfiguredUpiId());
         sub.setNotes("Payment submitted by shop owner. Pending manual admin verification.");
         subscriptionRepository.save(sub);
 
+        PaymentRecord record = new PaymentRecord(
+                "SUBSCRIPTION",
+                shop.getOwner(),
+                shop,
+                null,
+                amount,
+                request.getPaymentReference().trim(),
+                sub.getPaymentUpiId()
+        );
+        record.setPlanType(request.getPlanType().name());
+        record.setNotes("Owner primary subscription renewal (" + request.getPlanType().name() + ")");
+        paymentRecordRepository.save(record);
+
         return getShopSubscriptionStatus(shopId);
     }
 
+    @CacheEvict(cacheNames = CacheConfig.CACHE_APP_SETTINGS, allEntries = true)
     @Transactional
     public void adminUpdateSettings(AdminSettingRequest request) {
         if (request.getUpiId() != null && !request.getUpiId().isBlank()) {
@@ -182,8 +212,20 @@ public class SubscriptionService {
     @Transactional(readOnly = true)
     public List<AdminShopItem> adminGetAllShops() {
         List<Shop> shops = shopRepository.findAll();
-        List<AdminShopItem> items = new ArrayList<>();
+        if (shops.isEmpty()) {
+            return Collections.emptyList();
+        }
 
+        List<Long> shopIds = shops.stream().map(Shop::getId).toList();
+        List<Subscription> subs = subscriptionRepository.findAllByShopIdInOrderByEndDateDesc(shopIds);
+        Map<Long, Subscription> latestSubByShop = new HashMap<>();
+        for (Subscription sub : subs) {
+            if (sub.getShop() != null) {
+                latestSubByShop.putIfAbsent(sub.getShop().getId(), sub);
+            }
+        }
+
+        List<AdminShopItem> items = new ArrayList<>();
         for (Shop s : shops) {
             AdminShopItem item = new AdminShopItem();
             item.setShopId(s.getId());
@@ -195,7 +237,7 @@ public class SubscriptionService {
                 item.setOwnerPhone(s.getOwner().getPhone());
             }
 
-            Subscription sub = subscriptionRepository.findTopByShopIdOrderByEndDateDesc(s.getId()).orElse(null);
+            Subscription sub = latestSubByShop.get(s.getId());
             if (sub != null) {
                 item.setSubscriptionStatus(sub.getStatus());
                 item.setPlanType(sub.getPlanType());

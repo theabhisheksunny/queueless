@@ -7,6 +7,7 @@ public class AuthRequest {
     private String phone;
     private String pin;
     private String deviceFingerprint;
+    private String deviceRegistrationId;
 
     public AuthRequest() {}
 
@@ -19,6 +20,13 @@ public class AuthRequest {
         this.phone = phone;
         this.pin = pin;
         this.deviceFingerprint = deviceFingerprint;
+    }
+
+    public AuthRequest(String phone, String pin, String deviceFingerprint, String deviceRegistrationId) {
+        this.phone = phone;
+        this.pin = pin;
+        this.deviceFingerprint = deviceFingerprint;
+        this.deviceRegistrationId = deviceRegistrationId;
     }
 
     public String getEmail() {
@@ -59,5 +67,13 @@ public class AuthRequest {
 
     public void setDeviceFingerprint(String deviceFingerprint) {
         this.deviceFingerprint = deviceFingerprint;
+    }
+
+    public String getDeviceRegistrationId() {
+        return deviceRegistrationId;
+    }
+
+    public void setDeviceRegistrationId(String deviceRegistrationId) {
+        this.deviceRegistrationId = deviceRegistrationId;
     }
 }

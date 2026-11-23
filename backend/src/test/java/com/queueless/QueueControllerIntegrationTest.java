@@ -31,11 +31,33 @@ public class QueueControllerIntegrationTest {
     @Autowired
     private TestRegistrationHelper testRegistrationHelper;
 
+    @Autowired
+    private com.queueless.repository.UserRepository userRepository;
+
+    @Autowired
+    private com.queueless.security.JwtTokenProvider tokenProvider;
+
+    @Autowired
+    private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
+
     private String ownerJwtToken;
+    private String superAdminToken;
     private Long shopId;
 
     @BeforeEach
     void setUp() throws Exception {
+        com.queueless.entity.User sa = new com.queueless.entity.User(
+                "sa_" + System.currentTimeMillis() + "@queueless.com",
+                passwordEncoder.encode("Pass123!"),
+                "Super Admin",
+                "+9199" + (10000000 + (int)(Math.random() * 89999999)),
+                com.queueless.entity.UserRole.ROLE_SUPER_ADMIN
+        );
+        sa.setStatus("ACTIVE");
+        sa.setActiveSessionId(java.util.UUID.randomUUID().toString());
+        sa = userRepository.save(sa);
+        superAdminToken = tokenProvider.generateTokenForUsername(sa.getEmail(), sa.getActiveSessionId());
+
         // Register unique shop owner
         String uniqueEmail = "integration" + System.currentTimeMillis() + "@queueless.com";
         String uniquePhone = "98" + (10000000 + (int)(Math.random() * 89999999));
@@ -198,14 +220,22 @@ public class QueueControllerIntegrationTest {
                         .content(objectMapper.writeValueAsString(adminSetting)))
                 .andExpect(status().isOk());
 
-        // 4. Admin activates/extends shop subscription
+        // 4. Admin activates/extends shop subscription (strictly requires ROLE_SUPER_ADMIN; legacy key returns 403)
         AdminShopActivateRequest activateReq = new AdminShopActivateRequest();
         activateReq.setShopId(shopId);
         activateReq.setPlanType(com.queueless.entity.SubscriptionPlan.YEARLY);
         activateReq.setCustomDays(365);
 
+        // Negative check: X-Admin-Key alone is rejected with 403 Forbidden
         mockMvc.perform(post("/api/admin/activate")
                         .header("X-Admin-Key", "admin-secret-queueless-2026")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(activateReq)))
+                .andExpect(status().isForbidden());
+
+        // Positive check: Super Admin JWT succeeds
+        mockMvc.perform(post("/api/admin/activate")
+                        .header("Authorization", "Bearer " + superAdminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(activateReq)))
                 .andExpect(status().isOk());

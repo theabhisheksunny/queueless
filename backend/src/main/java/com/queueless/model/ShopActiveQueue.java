@@ -94,6 +94,14 @@ public class ShopActiveQueue {
     }
 
     /**
+     * Ensures the internal sequence counter is at least the specified minimum.
+     * Prevents sequence duplication if queue is reloaded from existing database records.
+     */
+    public synchronized void ensureSequenceAtLeast(int minSequence) {
+        sequenceCounter.updateAndGet(current -> Math.max(current, minSequence));
+    }
+
+    /**
      * Allocates next sequential token in a thread-safe manner (001, 002, 003...).
      */
     public synchronized int allocateNextSequence() {

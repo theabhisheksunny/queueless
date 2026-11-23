@@ -21,4 +21,11 @@ public interface CustomerPushSubscriptionRepository extends JpaRepository<Custom
     List<CustomerPushSubscription> findByCustomerTrackingTokenAndEndpoint(String trackingToken, String endpoint);
 
     List<CustomerPushSubscription> findByShopIdAndActiveTrue(Long shopId);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("DELETE FROM CustomerPushSubscription p WHERE p.active = false OR p.createdAt <= :cutoff")
+    int deleteStaleSubscriptions(@org.springframework.data.repository.query.Param("cutoff") java.time.LocalDateTime cutoff);
+
+    @org.springframework.data.jpa.repository.Query("SELECT p.id FROM CustomerPushSubscription p WHERE p.active = false OR p.createdAt <= :cutoff")
+    List<Long> findStaleSubscriptionIds(@org.springframework.data.repository.query.Param("cutoff") java.time.LocalDateTime cutoff, org.springframework.data.domain.Pageable pageable);
 }

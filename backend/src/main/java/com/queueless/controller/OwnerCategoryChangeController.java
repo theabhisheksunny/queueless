@@ -31,17 +31,27 @@ public class OwnerCategoryChangeController {
     }
 
     @GetMapping({"", "/status"})
-    public ResponseEntity<CategoryChangeStatusResponse> getStatus(Principal principal) {
-        Shop shop = shopResolver.resolveShop(principal);
+    public ResponseEntity<CategoryChangeStatusResponse> getStatus(
+            Principal principal,
+            @RequestParam(value = "shopId", required = false) Long paramShopId,
+            @RequestHeader(value = "X-Shop-Id", required = false) Long headerShopId) {
+        Long target = paramShopId != null ? paramShopId : headerShopId;
+        User user = shopResolver.resolveUser(principal);
+        shopResolver.requireOwnerRole(user);
+        Shop shop = shopResolver.resolveShop(user, target);
         return ResponseEntity.ok(categoryChangeService.getStatus(shop.getId()));
     }
 
     @PostMapping("/request")
     public ResponseEntity<CategoryChangeStatusResponse> initiateRequest(
             Principal principal,
+            @RequestParam(value = "shopId", required = false) Long paramShopId,
+            @RequestHeader(value = "X-Shop-Id", required = false) Long headerShopId,
             @Valid @RequestBody CategoryChangeInitiateRequest request) {
+        Long target = paramShopId != null ? paramShopId : headerShopId;
         User user = shopResolver.resolveUser(principal);
-        Shop shop = shopResolver.resolveShop(user);
+        shopResolver.requireOwnerRole(user);
+        Shop shop = shopResolver.resolveShop(user, target);
         entitlementService.requireActiveEntitlement(shop.getId());
         CategoryChangeStatusResponse response = categoryChangeService.initiateRequest(shop.getId(), user.getId(), request);
         return ResponseEntity.ok(response);
@@ -50,9 +60,13 @@ public class OwnerCategoryChangeController {
     @PostMapping("/payment")
     public ResponseEntity<CategoryChangeStatusResponse> submitPayment(
             Principal principal,
+            @RequestParam(value = "shopId", required = false) Long paramShopId,
+            @RequestHeader(value = "X-Shop-Id", required = false) Long headerShopId,
             @Valid @RequestBody CategoryChangePaymentSubmitRequest request) {
+        Long target = paramShopId != null ? paramShopId : headerShopId;
         User user = shopResolver.resolveUser(principal);
-        Shop shop = shopResolver.resolveShop(user);
+        shopResolver.requireOwnerRole(user);
+        Shop shop = shopResolver.resolveShop(user, target);
         entitlementService.requireActiveEntitlement(shop.getId());
         CategoryChangeStatusResponse response = categoryChangeService.submitPayment(shop.getId(), user.getId(), request);
         return ResponseEntity.ok(response);

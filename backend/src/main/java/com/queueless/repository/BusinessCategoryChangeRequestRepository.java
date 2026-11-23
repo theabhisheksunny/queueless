@@ -20,6 +20,8 @@ public interface BusinessCategoryChangeRequestRepository extends JpaRepository<B
 
     boolean existsByPaymentReference(String paymentReference);
 
+    Optional<BusinessCategoryChangeRequest> findByPaymentReference(String paymentReference);
+
     boolean existsByPaymentReferenceAndIdNot(String paymentReference, Long id);
 
     List<BusinessCategoryChangeRequest> findAllByOrderByCreatedAtDesc();

@@ -165,10 +165,10 @@ class PinAuthenticationSecurityTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("PIN reset successfully")));
 
-        // OLD TOKEN is now REVOKED! Access to dashboard must be denied (unauthenticated/forbidden)
+        // OLD TOKEN is now REVOKED! Access to dashboard must be denied (unauthenticated/unauthorized)
         mockMvc.perform(get("/api/queue/dashboard")
                         .header("Authorization", "Bearer " + oldToken))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
         // Login with new PIN succeeds and grants new active token
         PinLoginRequest newLoginReq = new PinLoginRequest(phone, "778899");

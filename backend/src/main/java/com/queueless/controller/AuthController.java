@@ -14,9 +14,15 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+    private final com.queueless.service.DeviceAuthService deviceAuthService;
+    private final com.queueless.security.JwtTokenProvider tokenProvider;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService,
+                          com.queueless.service.DeviceAuthService deviceAuthService,
+                          com.queueless.security.JwtTokenProvider tokenProvider) {
         this.authService = authService;
+        this.deviceAuthService = deviceAuthService;
+        this.tokenProvider = tokenProvider;
     }
 
     private String extractClientIp(HttpServletRequest request) {
@@ -45,7 +51,12 @@ public class AuthController {
             String pin = request.getPin() != null && !request.getPin().isBlank() 
                     ? request.getPin() 
                     : request.getPassword();
-            PinLoginRequest pinReq = new PinLoginRequest(request.getPhone(), pin, request.getDeviceFingerprint());
+            PinLoginRequest pinReq = new PinLoginRequest(
+                    request.getPhone(),
+                    pin,
+                    request.getDeviceFingerprint(),
+                    request.getDeviceRegistrationId()
+            );
             return ResponseEntity.ok(authService.pinLogin(pinReq, clientIp));
         }
 
@@ -74,5 +85,64 @@ public class AuthController {
     public ResponseEntity<Map<String, String>> resetPassword(@Valid @RequestBody PasswordResetRequest request) {
         authService.resetPassword(request);
         return ResponseEntity.ok(Map.of("message", "Password reset successfully. You can now log in."));
+    }
+
+    @PostMapping({"/device-enroll", "/enroll-first-device"})
+    public ResponseEntity<AuthResponse> enrollFirstDevice(
+            @Valid @RequestBody DeviceEnrollmentRequest request,
+            HttpServletRequest httpRequest) {
+        String clientIp = extractClientIp(httpRequest);
+        AuthResponse response = deviceAuthService.enrollFirstDevice(request, clientIp);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/device-login")
+    public ResponseEntity<AuthResponse> deviceLogin(
+            @Valid @RequestBody DeviceProofLoginRequest request,
+            HttpServletRequest httpRequest) {
+        String clientIp = extractClientIp(httpRequest);
+        AuthResponse response = deviceAuthService.deviceLogin(request, clientIp);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/device-replacement/request")
+    public ResponseEntity<DeviceReplacementResponse> requestDeviceReplacement(
+            @Valid @RequestBody DeviceReplacementSubmitRequest request,
+            HttpServletRequest httpRequest) {
+        String clientIp = extractClientIp(httpRequest);
+        DeviceReplacementResponse response = deviceAuthService.requestDeviceReplacement(request, clientIp);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping({"/device-challenge", "/device/challenge"})
+    public ResponseEntity<DeviceChallengeResponse> createDeviceChallenge(
+            @Valid @RequestBody DeviceChallengeRequest request,
+            HttpServletRequest httpRequest) {
+        String clientIp = extractClientIp(httpRequest);
+        DeviceChallengeResponse response = deviceAuthService.createChallenge(request, clientIp);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping({"/device-replacement/complete", "/device/complete-replacement"})
+    public ResponseEntity<AuthResponse> completeDeviceReplacement(
+            @Valid @RequestBody DeviceReplacementCompleteRequest request,
+            HttpServletRequest httpRequest) {
+        String clientIp = extractClientIp(httpRequest);
+        AuthResponse response = deviceAuthService.completeDeviceReplacement(request, clientIp);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Map<String, String>> logout(HttpServletRequest httpRequest) {
+        String authHeader = httpRequest.getHeader("Authorization");
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String token = authHeader.substring(7);
+            try {
+                String username = tokenProvider.getUsernameFromToken(token);
+                String sessionId = tokenProvider.getSessionIdFromToken(token);
+                deviceAuthService.logout(username, sessionId);
+            } catch (Exception ignored) {}
+        }
+        return ResponseEntity.ok(Map.of("message", "Logged out successfully. Device enrollment preserved."));
     }
 }

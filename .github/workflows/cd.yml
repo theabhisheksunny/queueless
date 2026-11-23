@@ -1,19 +1,16 @@
 name: QueueLess — Continuous Delivery & Multi-Environment Deployment
 
 on:
-  push:
-    branches: [master]
   workflow_dispatch:
     inputs:
       target_env:
-        description: 'Deployment Target'
+        description: 'Deployment Scope (staging_only: Staging deploy & smoke test; staging_and_production: Staging deploy + smoke test + manual approval gate + verified promotion + production deploy)'
         required: true
-        default: 'staging_then_production'
+        default: 'staging_only'
         type: choice
         options:
-          - 'staging_then_production'
           - 'staging_only'
-          - 'production_only'
+          - 'staging_and_production'
 
 concurrency:
   group: cd-deployment-master
@@ -31,6 +28,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
+      - name: Validate Target Environment Scope (Fail Closed)
+        run: |
+          TARGET="${{ inputs.target_env }}"
+          if [ "$TARGET" != "staging_only" ] && [ "$TARGET" != "staging_and_production" ]; then
+            echo "FATAL: Invalid or unauthorized target_env '$TARGET'. Aborting deployment immediately."
+            exit 1
+          fi
+          echo "Target deployment scope validated successfully: $TARGET"
+
       - name: Check out repository
         uses: actions/checkout@v4
 
@@ -97,42 +103,50 @@ jobs:
           echo "Backend failed to start within 60 seconds."
           exit 1
 
-      - name: Execute Playwright E2E Suite (25 Tests)
+      - name: Execute Playwright E2E Suite (24 Tests)
         run: |
           cd frontend
           npx playwright test
 
   # ===================================================================
-  # Stage 2: Immutable Artifact Creation (Build Once, Promote Everywhere)
+  # Stage 2: Immutable Artifact Creation & Cryptographic Attestation
   # ===================================================================
   build-and-push-artifacts:
-    name: Build & Publish Immutable Artifacts
+    name: Build & Attest Staging Artifacts
     runs-on: ubuntu-latest
     needs: [ci-gate]
     permissions:
       contents: read
       id-token: write
+      attestations: write
     timeout-minutes: 20
     outputs:
-      image_tag: ${{ steps.meta.outputs.image_tag }}
+      image_digest: ${{ steps.meta.outputs.image_digest }}
+      staging_image_uri: ${{ steps.meta.outputs.staging_image_uri }}
       short_sha: ${{ steps.meta.outputs.short_sha }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Compute Short Commit SHA
-        id: meta
+        id: meta-sha
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
-          IMAGE_URI="asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless/queueless-backend:${{ github.sha }}"
-          echo "image_tag=$IMAGE_URI" >> $GITHUB_OUTPUT
+
+      - name: Verify Dedicated Staging Deployer Identity Configuration
+        run: |
+          if [ -z "${{ secrets.GCP_STAGING_DEPLOYER_SA }}" ]; then
+            echo "FATAL: Missing required secret 'GCP_STAGING_DEPLOYER_SA'! Shared service account fallback has been strictly eliminated for least-privilege security."
+            exit 1
+          fi
 
       - name: Authenticate to Google Cloud via Workload Identity Federation
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          service_account: ${{ secrets.GCP_STAGING_DEPLOYER_SA }}
+          access_token_lifetime: '600s'
 
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -146,14 +160,45 @@ jobs:
       - name: Build Immutable Backend Docker Image
         run: |
           docker build \
-            --tag "asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless/queueless-backend:${{ github.sha }}" \
-            --tag "asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless/queueless-backend:sha-${{ steps.meta.outputs.short_sha }}" \
+            --tag "asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless-staging/backend:${{ github.sha }}" \
+            --tag "asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless-staging/backend:sha-${{ steps.meta-sha.outputs.short_sha }}" \
             -f Dockerfile .
 
-      - name: Push Immutable Container Image to Artifact Registry
+      - name: Push Immutable Container Image to Staging Artifact Registry
         run: |
-          docker push "asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless/queueless-backend:${{ github.sha }}"
-          docker push "asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless/queueless-backend:sha-${{ steps.meta.outputs.short_sha }}"
+          docker push "asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless-staging/backend:${{ github.sha }}"
+          docker push "asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless-staging/backend:sha-${{ steps.meta-sha.outputs.short_sha }}"
+
+      - name: Resolve Authoritative Staging Image Digest
+        id: meta
+        run: |
+          PKG="asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless-staging/backend"
+          DIGEST=$(gcloud artifacts docker images list "$PKG" \
+            --filter="tags:${{ github.sha }}" \
+            --format="value(version)" \
+            --limit=1)
+
+          if [ -z "$DIGEST" ] || ! echo "$DIGEST" | grep -q "^sha256:"; then
+            echo "FATAL: Failed to authoritatively resolve image digest from Artifact Registry metadata!"
+            exit 1
+          fi
+
+          STAGING_URI="${PKG}@${DIGEST}"
+          SHORT_SHA="${{ steps.meta-sha.outputs.short_sha }}"
+
+          echo "image_digest=$DIGEST" >> $GITHUB_OUTPUT
+          echo "staging_image_uri=$STAGING_URI" >> $GITHUB_OUTPUT
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+
+          echo "Authoritative Digest: $DIGEST"
+          echo "Staging Image URI   : $STAGING_URI"
+
+      - name: Attest Staging Image Build Provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: "asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless-staging/backend"
+          subject-digest: "${{ steps.meta.outputs.image_digest }}"
+          push-to-registry: false
 
       - name: Set up Node.js 20.x
         uses: actions/setup-node@v4
@@ -177,7 +222,8 @@ jobs:
             "branch": "${{ github.ref_name }}",
             "author": "${{ github.actor }}",
             "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
-            "backend_image": "asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless/queueless-backend:${{ github.sha }}"
+            "staging_image_uri": "${{ steps.meta.outputs.staging_image_uri }}",
+            "staging_image_digest": "${{ steps.meta.outputs.image_digest }}"
           }
           EOF
 
@@ -196,13 +242,12 @@ jobs:
           retention-days: 14
 
   # ===================================================================
-  # Stage 3: Staging Deployment & Automated Smoke Tests
+  # Stage 3: Staging Deployment
   # ===================================================================
   deploy-staging:
     name: Deploy to Staging Environment
     runs-on: ubuntu-latest
     needs: [build-and-push-artifacts]
-    if: inputs.target_env != 'production_only'
     environment:
       name: staging
       url: https://queueless-staging.theabhisheksunny.workers.dev
@@ -224,25 +269,38 @@ jobs:
         run: |
           test -f frontend/dist/index.html || { echo "ERROR: frontend/dist/index.html missing!"; exit 1; }
 
+      - name: Verify Dedicated Staging Deployer Configuration
+        run: |
+          if [ -z "${{ secrets.GCP_STAGING_DEPLOYER_SA }}" ]; then
+            echo "FATAL: Missing required secret 'GCP_STAGING_DEPLOYER_SA'! Shared service account fallback has been strictly eliminated for least-privilege security."
+            exit 1
+          fi
+          STG_REF="${{ vars.QUEUELESS_STAGING_SUPABASE_PROJECT_REF || secrets.QUEUELESS_STAGING_SUPABASE_PROJECT_REF }}"
+          if [ -z "$STG_REF" ]; then
+            echo "FATAL: Missing required variable or secret 'QUEUELESS_STAGING_SUPABASE_PROJECT_REF'! Refusing to deploy with unverified project reference."
+            exit 1
+          fi
+
       - name: Authenticate to Google Cloud via Workload Identity Federation
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          service_account: ${{ secrets.GCP_STAGING_DEPLOYER_SA }}
+          access_token_lifetime: '600s'
 
       - name: Deploy Backend to Cloud Run Staging
         run: |
           gcloud run deploy queueless-backend-staging \
-            --image="${{ needs.build-and-push-artifacts.outputs.image_tag }}" \
+            --image="${{ needs.build-and-push-artifacts.outputs.staging_image_uri }}" \
             --region=asia-south1 \
             --platform=managed \
-            --allow-unauthenticated \
+            --service-account="queueless-staging-sa@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
             --min-instances=0 \
             --max-instances=1 \
             --cpu=1 \
             --memory=1Gi \
-            --set-env-vars="SPRING_PROFILES_ACTIVE=prod" \
-            --set-secrets="SPRING_DATASOURCE_URL=QUEUELESS_STAGING_DB_URL:latest,APP_JWT_SECRET=QUEUELESS_STAGING_JWT_SECRET:latest,APP_ADMIN_KEY=QUEUELESS_STAGING_ADMIN_KEY:latest"
+            --set-env-vars="SPRING_PROFILES_ACTIVE=staging,APP_DATASOURCE_EXPECTED_ENV_TYPE=STAGING,APP_DATASOURCE_EXPECTED_PROJECT_REF=${{ vars.QUEUELESS_STAGING_SUPABASE_PROJECT_REF || secrets.QUEUELESS_STAGING_SUPABASE_PROJECT_REF }}" \
+            --set-secrets="SPRING_DATASOURCE_URL=QUEUELESS_STAGING_DB_URL:latest,APP_JWT_SECRET=QUEUELESS_STAGING_JWT_SECRET:latest,APP_ADMIN_KEY=QUEUELESS_STAGING_ADMIN_KEY:latest,APP_SUPERADMIN_PASSWORD=QUEUELESS_STAGING_SUPERADMIN_PASS:latest,SPRING_FLYWAY_USER=QUEUELESS_STAGING_MIGRATOR_USER:latest,SPRING_FLYWAY_PASSWORD=QUEUELESS_STAGING_MIGRATOR_PASS:latest"
 
       - name: Deploy Frontend to Cloudflare Workers Staging
         uses: cloudflare/wrangler-action@v3
@@ -250,7 +308,19 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           command: deploy --env staging --no-build
 
-      - name: Set up Python for Smoke Testing
+  # ===================================================================
+  # Stage 4: Automated Post-Deployment Staging Smoke Tests
+  # ===================================================================
+  staging-smoke-tests:
+    name: Execute Staging Smoke Tests Gate
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -260,17 +330,85 @@ jobs:
           python scripts/smoke_test.py https://queueless-staging.theabhisheksunny.workers.dev
 
   # ===================================================================
-  # Stage 4: Production Deployment — MANUAL APPROVAL ONLY
+  # Stage 5: Verified Release Promotion — MANUAL APPROVAL ONLY
+  # ===================================================================
+  promote-image:
+    name: Promote Verified Image to Production (Approval Gate)
+    runs-on: ubuntu-latest
+    needs: [staging-smoke-tests, build-and-push-artifacts]
+    if: inputs.target_env == 'staging_and_production' && inputs.target_env != 'staging_only'
+    environment:
+      name: production-promotion
+    permissions:
+      contents: read
+      id-token: write
+      attestations: read
+    timeout-minutes: 15
+    outputs:
+      promoted_image_uri: ${{ steps.promo.outputs.promoted_image_uri }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify Cryptographic Build Provenance of Staging Image
+        run: |
+          gh attestation verify "oci://${{ needs.build-and-push-artifacts.outputs.staging_image_uri }}" \
+            --owner "${{ github.repository_owner }}" \
+            --repo "${{ github.repository }}" \
+            --predicate-type "https://slsa.dev/provenance/v1.0"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Crane OCI Tool (Pinned v0.20.2)
+        uses: imjasonh/setup-crane@v0.4
+        with:
+          version: v0.20.2
+
+      - name: Verify Dedicated Image Promoter Identity Configuration
+        run: |
+          if [ -z "${{ secrets.GCP_PROMOTER_SA }}" ]; then
+            echo "FATAL: Missing required secret 'GCP_PROMOTER_SA'! Shared service account fallback has been strictly eliminated for least-privilege security."
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud via Workload Identity Federation (Promoter SA)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_PROMOTER_SA }}
+          access_token_lifetime: '600s'
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Configure Crane Authentication for Google Artifact Registry
+        run: |
+          gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+
+      - name: Execute Deterministic Image Promotion
+        id: promo
+        run: |
+          python scripts/promote_image.py \
+            --source-image "${{ needs.build-and-push-artifacts.outputs.staging_image_uri }}" \
+            --target-repo "asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/queueless-prod/backend" \
+            --target-tag "sha-${{ needs.build-and-push-artifacts.outputs.short_sha }}" \
+            --expected-digest "${{ needs.build-and-push-artifacts.outputs.image_digest }}"
+
+  # ===================================================================
+  # Stage 6: Production Deployment — MANUAL APPROVAL ONLY
   # ===================================================================
   deploy-production:
     name: Deploy to Production (Manual Approval Gate)
     runs-on: ubuntu-latest
-    needs: [build-and-push-artifacts, deploy-staging]
-    if: |
-      always() &&
-      needs.build-and-push-artifacts.result == 'success' &&
-      inputs.target_env != 'staging_only' &&
-      (needs.deploy-staging.result == 'success' || inputs.target_env == 'production_only')
+    needs: [promote-image, build-and-push-artifacts]
+    if: inputs.target_env == 'staging_and_production' && inputs.target_env != 'staging_only'
     environment:
       name: production
       url: https://queueless.theabhisheksunny.workers.dev
@@ -292,25 +430,38 @@ jobs:
         run: |
           test -f frontend/dist/index.html || { echo "ERROR: frontend/dist/index.html missing!"; exit 1; }
 
-      - name: Authenticate to Google Cloud via Workload Identity Federation
+      - name: Verify Dedicated Production Deployer Configuration
+        run: |
+          if [ -z "${{ secrets.GCP_PROD_DEPLOYER_SA }}" ]; then
+            echo "FATAL: Missing required secret 'GCP_PROD_DEPLOYER_SA'! Shared service account fallback has been strictly eliminated for least-privilege security."
+            exit 1
+          fi
+          PROD_REF="${{ vars.QUEUELESS_PROD_SUPABASE_PROJECT_REF || secrets.QUEUELESS_PROD_SUPABASE_PROJECT_REF }}"
+          if [ -z "$PROD_REF" ]; then
+            echo "FATAL: Missing required variable or secret 'QUEUELESS_PROD_SUPABASE_PROJECT_REF'! Refusing to deploy with unverified project reference."
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud via Workload Identity Federation (Prod Deployer SA)
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          service_account: ${{ secrets.GCP_PROD_DEPLOYER_SA }}
+          access_token_lifetime: '600s'
 
-      - name: Deploy Immutable Image to Cloud Run Production
+      - name: Deploy Promoted Immutable Image to Cloud Run Production
         run: |
           gcloud run deploy queueless-backend \
-            --image="${{ needs.build-and-push-artifacts.outputs.image_tag }}" \
+            --image="${{ needs.promote-image.outputs.promoted_image_uri }}" \
             --region=asia-south1 \
             --platform=managed \
-            --allow-unauthenticated \
+            --service-account="queueless-prod-sa@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
             --min-instances=0 \
             --max-instances=1 \
             --cpu=1 \
             --memory=1Gi \
-            --set-env-vars="SPRING_PROFILES_ACTIVE=prod" \
-            --set-secrets="SPRING_DATASOURCE_URL=QUEUELESS_PROD_DB_URL:latest,APP_JWT_SECRET=QUEUELESS_PROD_JWT_SECRET:latest,APP_ADMIN_KEY=QUEUELESS_PROD_ADMIN_KEY:latest"
+            --set-env-vars="SPRING_PROFILES_ACTIVE=prod,APP_DATASOURCE_EXPECTED_ENV_TYPE=PRODUCTION,APP_DATASOURCE_EXPECTED_PROJECT_REF=${{ vars.QUEUELESS_PROD_SUPABASE_PROJECT_REF || secrets.QUEUELESS_PROD_SUPABASE_PROJECT_REF }}" \
+            --set-secrets="SPRING_DATASOURCE_URL=QUEUELESS_PROD_DB_URL:latest,APP_JWT_SECRET=QUEUELESS_PROD_JWT_SECRET:latest,APP_ADMIN_KEY=QUEUELESS_PROD_ADMIN_KEY:latest,SPRING_FLYWAY_USER=QUEUELESS_PROD_MIGRATOR_USER:latest,SPRING_FLYWAY_PASSWORD=QUEUELESS_PROD_MIGRATOR_PASS:latest"
 
       - name: Deploy Frontend to Cloudflare Workers Production
         uses: cloudflare/wrangler-action@v3

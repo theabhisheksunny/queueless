@@ -7,34 +7,45 @@ This checklist must be reviewed and executed for every production deployment of 
 ## 1. Pre-Release Verification (Before Approving GitHub Environment)
 
 - [ ] **Clean CI Execution**:
-  - [ ] All 59 backend unit and security tests passed.
-  - [ ] Frontend TypeScript compilation and Vite build passed without errors.
-  - [ ] All 25 Playwright End-to-End browser tests passed.
-  - [ ] Pre-flight policy script passed all 7 checks (`python scripts/verify_production_policies.py`).
+  - [ ] All backend unit and security integration tests passed (`mvn clean test`).
+  - [ ] Frontend TypeScript compilation and Vite build passed without errors (`npm run build`).
+  - [ ] Full Playwright End-to-End browser test suite passed (`npx playwright test`).
+  - [ ] Pre-flight policy script passed all 10 checks (`python scripts/verify_production_policies.py`).
+  - [ ] Remediation verification script passed all 7 checks (`python scripts/verify_deployment_remediation.py`).
   - [ ] Container image Trivy vulnerability scan checked (no unresolved `CRITICAL` CVEs).
 
-- [ ] **Artifact Verification**:
-  - [ ] Container image successfully built and tagged with commit SHA: `asia-south1-docker.pkg.dev/.../queueless-backend:${COMMIT_SHA}`.
+- [ ] **Artifact Verification & SLSA Attestation**:
+  - [ ] Container image successfully built and tagged in staging repo: `asia-south1-docker.pkg.dev/${GCP_PROJECT_ID}/queueless-staging/backend:${COMMIT_SHA}`.
+  - [ ] Authoritative SHA-256 digest resolved and cryptographically attested.
   - [ ] Release metadata manifest generated (`release-metadata.json`).
 
 - [ ] **Staging Sign-Off**:
-  - [ ] Staging Cloud Run service (`queueless-backend-staging`) successfully updated.
+  - [ ] Staging Cloud Run service (`queueless-backend-staging`) successfully updated in `asia-south1`.
   - [ ] Staging Cloudflare Worker (`queueless-staging`) deployed.
-  - [ ] Automated smoke test suite passed on staging (`python scripts/smoke_test.py https://queueless-staging...`).
+  - [ ] Automated smoke test suite passed on staging (`python scripts/smoke_test.py https://queueless-staging.theabhisheksunny.workers.dev`).
   - [ ] No regression observed in core business workflows (QR generation, token issuance, PIN login).
 
 - [ ] **Database Migration Review**:
-  - [ ] Check if new Flyway migrations (`V...sql`) are introduced.
+  - [ ] Check if new Flyway migrations (`V...sql` or Java migrations) are introduced.
   - [ ] Confirm migrations are backwards-compatible (e.g. `ADD COLUMN IF NOT EXISTS`, nullable fields).
-  - [ ] Confirm no destructive `DROP TABLE` or `ALTER COLUMN TYPE` operations impact existing active shop queues.
+  - [ ] Confirm Flyway migration identity is dedicated (`queueless_migrator_prod`) and runtime role is unprivileged (`queueless_app_prod`).
+  - [ ] Confirm canary record verification callback passes closed on environment mismatch.
 
 ---
 
-## 2. Production Deployment (Manual Approval Gate)
+## 2. Release Promotion Gate (Manual Approval)
 
-- [ ] Navigate to the GitHub Actions run for `QueueLess — Continuous Delivery & Multi-Environment Deployment`.
-- [ ] Inspect the `Deploy to Production` job waiting in `Review pending deployments`.
-- [ ] Confirm the deployment target is `master` at the verified commit SHA.
+- [ ] Navigate to GitHub Actions run for `QueueLess — Continuous Delivery & Multi-Environment Deployment`.
+- [ ] Review pending deployment for environment **`production-promotion`**.
+- [ ] Approve promotion to trigger `scripts/promote_image.py` (Crane deterministic byte-for-byte copy to `queueless-prod/backend`).
+- [ ] Confirm source and destination SHA-256 digests match bit-for-bit without image rebuild.
+
+---
+
+## 3. Production Deployment (Manual Approval Gate)
+
+- [ ] Inspect the `Deploy to Production` job waiting in `production` environment approval gate.
+- [ ] Confirm the deployment target is `master` at the verified commit SHA and promoted image digest.
 - [ ] Click **Approve and deploy**.
 
 ---

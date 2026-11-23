@@ -13,11 +13,28 @@ Navigate to **GitHub Repository $\rightarrow$ Settings $\rightarrow$ Environment
 #### 1. Environment: `staging`
 - **Environment Name**: `staging`
 - **Deployment Branches**: Selected branches $\rightarrow$ `master`
-- **Reviewers**: None required (automatically deploys on merge to `master`).
+- **Reviewers**: None required (executes automatically during staging CD workflow run).
+- **Associated Job**: `deploy-staging` in `.github/workflows/cd.yml`.
 
-#### 2. Environment: `production`
+#### 2. Environment: `production-promotion`
+- **Environment Name**: `production-promotion`
+- **Purpose**: Acts as the mandatory administrative approval and cryptographic gate governing OCI container image promotion from the Staging Artifact Registry to the Production Artifact Registry.
+- **Associated Job**: `promote-image` in `.github/workflows/cd.yml`.
+- **Required Reviewers**: Enable the **Required reviewers** checkbox and assign authorized release managers (e.g., repository owners).
+- **Promotion Approval Gate**:
+  - Halts the CD pipeline immediately after staging deployment and automated staging smoke tests succeed.
+  - Upon release manager review and manual approval, executes `scripts/promote_image.py` using Crane OCI copy to transfer the exact verified staging image byte-for-byte to `queueless-prod/backend`.
+  - Verifies cryptographic SLSA build provenance and asserts byte-for-byte SHA-256 digest equality.
+  - Production deployment cannot be scheduled or executed without this promotion gate succeeding.
+- **Deployment Branches**: Selected branches $\rightarrow$ `master` only.
+
+#### 3. Environment: `production`
 - **Environment Name**: `production`
-- **Required Reviewers**: Enable **Required reviewers** checkbox and add authorized release managers (e.g., repository owners).
+- **Purpose**: Protects live customer-facing Google Cloud Run backend and Cloudflare Workers frontend environments.
+- **Associated Job**: `deploy-production` in `.github/workflows/cd.yml`.
+- **Required Reviewers**: Enable the **Required reviewers** checkbox and assign authorized release managers.
+- **Deployment Approval Gate**:
+  - Enforces final human review before deploying the promoted immutable image (`@sha256:...`) and frontend production bundle to live production services.
 - **Wait timer**: Optional (e.g., 0 minutes).
 - **Deployment Branches**: Selected branches $\rightarrow$ `master` only.
 
@@ -27,17 +44,26 @@ Navigate to **GitHub Repository $\rightarrow$ Settings $\rightarrow$ Environment
 
 Navigate to **Settings $\rightarrow$ Secrets and variables $\rightarrow$ Actions**.
 
-#### Repository Secrets & Variables (Required)
+#### Repository Secrets (Required)
 
 | Secret Name | Description | Example / Target Format |
 | :--- | :--- | :--- |
 | `GCP_PROJECT_ID` | GCP Project ID | `queueless-prod-514814` |
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | Full resource name of the Workload Identity Provider | `projects/1043223278240/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider` |
-| `GCP_SERVICE_ACCOUNT` | GCP Service Account email for GitHub Actions | `github-actions-deployer@queueless-prod-514814.iam.gserviceaccount.com` |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token | Token with `Worker Scripts:Edit`, `Account:Read` scopes |
+| `GCP_STAGING_DEPLOYER_SA` | Dedicated Staging Deployer Service Account email | `queueless-staging-deployer@queueless-prod-514814.iam.gserviceaccount.com` |
+| `GCP_PROMOTER_SA` | Dedicated Release Promoter Service Account email | `queueless-promoter@queueless-prod-514814.iam.gserviceaccount.com` |
+| `GCP_PROD_DEPLOYER_SA` | Dedicated Production Deployer Service Account email | `queueless-prod-deployer@queueless-prod-514814.iam.gserviceaccount.com` |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token for Wrangler deployment | Token with `Worker Scripts:Edit`, `Account:Read` scopes |
+
+#### Repository Variables (Required)
+
+| Variable Name | Description | Example / Target Format |
+| :--- | :--- | :--- |
+| `QUEUELESS_STAGING_SUPABASE_PROJECT_REF` | Expected Supabase project ref for Staging isolation gate | `abcdefghijklmnopqrst` |
+| `QUEUELESS_PROD_SUPABASE_PROJECT_REF` | Expected Supabase project ref for Production isolation gate | `zyxwvutsrqponmlkjihg` |
 
 > [!TIP]
-> **Zero Long-Lived Service Account Keys**: QueueLess CI/CD uses **Google Cloud Workload Identity Federation (WIF)**. GitHub Actions requests an OIDC token (`id-token: write`) exchanged for short-lived Google Cloud credentials. Static JSON keys (`GCP_SA_KEY`) are eliminated. Sensitive database URLs, JWT keys, and admin keys are stored and retrieved securely directly from **Google Secret Manager**.
+> **Zero Long-Lived Service Account Keys & Zero Shared Fallbacks**: QueueLess CI/CD uses **Google Cloud Workload Identity Federation (WIF)**. GitHub Actions requests an OIDC token (`id-token: write`) exchanged for short-lived Google Cloud credentials. Static JSON keys (`GCP_SA_KEY`) and monolithic shared deployer accounts (`GCP_SERVICE_ACCOUNT`) are eliminated. Each workflow stage uses an independent, least-privilege service account.
 
 ---
 
@@ -71,38 +97,92 @@ gcloud services enable \
   secretmanager.googleapis.com
 ```
 
-### 2.2. Create Google Artifact Registry Repository
-Create the container repository in the Mumbai region (`asia-south1`):
+### 2.2. Create Isolated Artifact Registry Repositories
+Create separate staging and production container repositories in the Mumbai region (`asia-south1`):
 ```bash
-gcloud artifacts repositories create queueless \
+# Staging Artifact Registry repository
+gcloud artifacts repositories create queueless-staging \
   --repository-format=docker \
   --location=asia-south1 \
-  --description="QueueLess Docker Container Repository"
+  --description="QueueLess Staging Container Repository"
+
+# Production Artifact Registry repository
+gcloud artifacts repositories create queueless-prod \
+  --repository-format=docker \
+  --location=asia-south1 \
+  --description="QueueLess Production Container Repository"
 ```
 
-### 2.3. Create Service Account for GitHub Actions
+### 2.3. Create Least-Privilege CI/CD Service Accounts
+QueueLess uses distinct identities for staging deployment, image promotion, and production deployment:
+
 ```bash
-# 1. Create service account
-gcloud iam service-accounts create github-actions-deployer \
-  --display-name="GitHub Actions CI/CD Deployer"
+# 1. Create Staging Deployer Service Account
+gcloud iam service-accounts create queueless-staging-deployer \
+  --display-name="QueueLess Staging CI/CD Deployer"
 
-# 2. Grant Cloud Run Admin role
+# Grant Cloud Run developer role (can deploy revisions, cannot alter IAM policies)
 gcloud projects add-iam-policy-binding queueless-prod-514814 \
-  --member="serviceAccount:github-actions-deployer@queueless-prod-514814.iam.gserviceaccount.com" \
-  --role="roles/run.admin"
+  --member="serviceAccount:queueless-staging-deployer@queueless-prod-514814.iam.gserviceaccount.com" \
+  --role="roles/run.developer"
 
-# 3. Grant Artifact Registry Writer role
-gcloud projects add-iam-policy-binding queueless-prod-514814 \
-  --member="serviceAccount:github-actions-deployer@queueless-prod-514814.iam.gserviceaccount.com" \
+# Grant Artifact Registry writer on staging repository only
+gcloud artifacts repositories add-iam-policy-binding queueless-staging \
+  --location=asia-south1 \
+  --member="serviceAccount:queueless-staging-deployer@queueless-prod-514814.iam.gserviceaccount.com" \
   --role="roles/artifactregistry.writer"
 
-# 4. Grant Service Account User role (allows Cloud Run to run as the runtime SA)
+# 2. Create Release Promoter Service Account
+gcloud iam service-accounts create queueless-promoter \
+  --display-name="QueueLess Release Promoter"
+
+# Grant read access to staging repository and write access to production repository
+gcloud artifacts repositories add-iam-policy-binding queueless-staging \
+  --location=asia-south1 \
+  --member="serviceAccount:queueless-promoter@queueless-prod-514814.iam.gserviceaccount.com" \
+  --role="roles/artifactregistry.reader"
+
+gcloud artifacts repositories add-iam-policy-binding queueless-prod \
+  --location=asia-south1 \
+  --member="serviceAccount:queueless-promoter@queueless-prod-514814.iam.gserviceaccount.com" \
+  --role="roles/artifactregistry.writer"
+
+# 3. Create Production Deployer Service Account
+gcloud iam service-accounts create queueless-prod-deployer \
+  --display-name="QueueLess Production CI/CD Deployer"
+
+# Grant Cloud Run developer role
 gcloud projects add-iam-policy-binding queueless-prod-514814 \
-  --member="serviceAccount:github-actions-deployer@queueless-prod-514814.iam.gserviceaccount.com" \
-  --role="roles/iam.serviceAccountUser"
+  --member="serviceAccount:queueless-prod-deployer@queueless-prod-514814.iam.gserviceaccount.com" \
+  --role="roles/run.developer"
 ```
 
-### 2.4. Configure Workload Identity Federation (WIF)
+### 2.4. Create Dedicated Cloud Run Runtime Service Accounts
+Cloud Run containers run under dedicated runtime identities rather than the default compute service account:
+
+```bash
+# 1. Staging Runtime Service Account
+gcloud iam service-accounts create queueless-staging-sa \
+  --display-name="QueueLess Staging Cloud Run Runtime SA"
+
+# Allow Staging Deployer to act as the Staging Runtime SA
+gcloud iam service-accounts add-iam-policy-binding \
+  queueless-staging-sa@queueless-prod-514814.iam.gserviceaccount.com \
+  --role="roles/iam.serviceAccountUser" \
+  --member="serviceAccount:queueless-staging-deployer@queueless-prod-514814.iam.gserviceaccount.com"
+
+# 2. Production Runtime Service Account
+gcloud iam service-accounts create queueless-prod-sa \
+  --display-name="QueueLess Production Cloud Run Runtime SA"
+
+# Allow Production Deployer to act as the Production Runtime SA
+gcloud iam service-accounts add-iam-policy-binding \
+  queueless-prod-sa@queueless-prod-514814.iam.gserviceaccount.com \
+  --role="roles/iam.serviceAccountUser" \
+  --member="serviceAccount:queueless-prod-deployer@queueless-prod-514814.iam.gserviceaccount.com"
+```
+
+### 2.5. Configure Workload Identity Federation (WIF)
 Eliminate static service account keys by establishing trust between GitHub Actions and GCP:
 ```bash
 # 1. Create a Workload Identity Pool
@@ -121,12 +201,23 @@ gcloud iam workload-identity-pools providers create-oidc "github-provider" \
   --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository" \
   --attribute-condition="assertion.repository == 'theabhisheksunny/queueless'"
 
-# 3. Allow GitHub repository to impersonate the service account
+# 3. Allow GitHub repository to impersonate the CI/CD service accounts
+REPO_PRINCIPAL="principalSet://iam.googleapis.com/projects/$(gcloud projects describe queueless-prod-514814 --format='value(projectNumber)')/locations/global/workloadIdentityPools/github-actions-pool/attribute.repository/theabhisheksunny/queueless"
+
 gcloud iam service-accounts add-iam-policy-binding \
-  github-actions-deployer@queueless-prod-514814.iam.gserviceaccount.com \
-  --project="queueless-prod-514814" \
+  queueless-staging-deployer@queueless-prod-514814.iam.gserviceaccount.com \
   --role="roles/iam.workloadIdentityUser" \
-  --member="principalSet://iam.googleapis.com/projects/$(gcloud projects describe queueless-prod-514814 --format='value(projectNumber)')/locations/global/workloadIdentityPools/github-actions-pool/attribute.repository/theabhisheksunny/queueless"
+  --member="$REPO_PRINCIPAL"
+
+gcloud iam service-accounts add-iam-policy-binding \
+  queueless-promoter@queueless-prod-514814.iam.gserviceaccount.com \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="$REPO_PRINCIPAL"
+
+gcloud iam service-accounts add-iam-policy-binding \
+  queueless-prod-deployer@queueless-prod-514814.iam.gserviceaccount.com \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="$REPO_PRINCIPAL"
 
 # 4. Get the full provider resource name for GitHub Secrets:
 gcloud iam workload-identity-pools providers describe "github-provider" \
@@ -137,30 +228,66 @@ gcloud iam workload-identity-pools providers describe "github-provider" \
 ```
 *Add the output of step 4 to the `GCP_WORKLOAD_IDENTITY_PROVIDER` GitHub Secret.*
 
-### 2.5. Create Secrets in Google Secret Manager
-Cloud Run mounts database passwords and JWT secrets securely at runtime via `--set-secrets`:
+### 2.6. Create Secrets in Google Secret Manager
+Cloud Run mounts database passwords, Flyway migration credentials, and JWT keys securely at runtime via `--set-secrets`:
+
 ```bash
-# Staging Secrets
+# --- Staging Secrets ---
 echo -n "jdbc:postgresql://<staging-pooler>:5432/postgres?sslmode=require" | \
   gcloud secrets create QUEUELESS_STAGING_DB_URL --data-file=-
 echo -n "staging-jwt-secret-min-32-chars-long" | \
   gcloud secrets create QUEUELESS_STAGING_JWT_SECRET --data-file=-
 echo -n "staging-admin-passphrase" | \
   gcloud secrets create QUEUELESS_STAGING_ADMIN_KEY --data-file=-
+echo -n "staging-superadmin-password" | \
+  gcloud secrets create QUEUELESS_STAGING_SUPERADMIN_PASS --data-file=-
+echo -n "queueless_migrator_staging.<staging-project-ref>" | \
+  gcloud secrets create QUEUELESS_STAGING_MIGRATOR_USER --data-file=-
+echo -n "strong-staging-migrator-password" | \
+  gcloud secrets create QUEUELESS_STAGING_MIGRATOR_PASS --data-file=-
 
-# Production Secrets
+# Grant Secret Accessor to Staging Runtime SA
+for SEC in QUEUELESS_STAGING_DB_URL QUEUELESS_STAGING_JWT_SECRET QUEUELESS_STAGING_ADMIN_KEY QUEUELESS_STAGING_SUPERADMIN_PASS QUEUELESS_STAGING_MIGRATOR_USER QUEUELESS_STAGING_MIGRATOR_PASS; do
+  gcloud secrets add-iam-policy-binding "$SEC" \
+    --member="serviceAccount:queueless-staging-sa@queueless-prod-514814.iam.gserviceaccount.com" \
+    --role="roles/secretmanager.secretAccessor"
+done
+
+# --- Production Secrets ---
 echo -n "jdbc:postgresql://<prod-pooler>:5432/postgres?sslmode=require" | \
   gcloud secrets create QUEUELESS_PROD_DB_URL --data-file=-
 echo -n "prod-jwt-secret-min-32-chars-high-entropy" | \
   gcloud secrets create QUEUELESS_PROD_JWT_SECRET --data-file=-
 echo -n "prod-admin-passphrase-high-entropy" | \
   gcloud secrets create QUEUELESS_PROD_ADMIN_KEY --data-file=-
+echo -n "queueless_migrator_prod.<prod-project-ref>" | \
+  gcloud secrets create QUEUELESS_PROD_MIGRATOR_USER --data-file=-
+echo -n "strong-production-migrator-password" | \
+  gcloud secrets create QUEUELESS_PROD_MIGRATOR_PASS --data-file=-
 
-# Grant Secret Manager Secret Accessor to the Cloud Run runtime service account
-PROJECT_NUM=$(gcloud projects describe queueless-prod-514814 --format='value(projectNumber)')
-gcloud projects add-iam-policy-binding queueless-prod-514814 \
-  --member="serviceAccount:${PROJECT_NUM}-compute@developer.gserviceaccount.com" \
-  --role="roles/secretmanager.secretAccessor"
+# Grant Secret Accessor to Production Runtime SA
+for SEC in QUEUELESS_PROD_DB_URL QUEUELESS_PROD_JWT_SECRET QUEUELESS_PROD_ADMIN_KEY QUEUELESS_PROD_MIGRATOR_USER QUEUELESS_PROD_MIGRATOR_PASS; do
+  gcloud secrets add-iam-policy-binding "$SEC" \
+    --member="serviceAccount:queueless-prod-sa@queueless-prod-514814.iam.gserviceaccount.com" \
+    --role="roles/secretmanager.secretAccessor"
+done
+```
+
+### 2.7. One-Time Public Invoker IAM Bootstrap
+To maintain least privilege, routine deployment workflows do not include `--allow-unauthenticated` (which would require dangerous `roles/run.admin` or `setIamPolicy` permissions on deployer service accounts). Public ingress access is granted once during service provisioning:
+
+```bash
+# Allow unauthenticated ingress to Staging Cloud Run service
+gcloud run services add-iam-policy-binding queueless-backend-staging \
+  --region=asia-south1 \
+  --member="allUsers" \
+  --role="roles/run.invoker"
+
+# Allow unauthenticated ingress to Production Cloud Run service
+gcloud run services add-iam-policy-binding queueless-backend \
+  --region=asia-south1 \
+  --member="allUsers" \
+  --role="roles/run.invoker"
 ```
 
 ---

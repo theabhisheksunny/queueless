@@ -1,0 +1,227 @@
+name: QueueLess — Docker Build & Runtime Verification (No Push)
+
+on:
+  workflow_dispatch:
+    inputs:
+      verification_reason:
+        description: 'Reason for Container Build & Verification Run'
+        required: false
+        default: 'Pre-deployment image filesystem and runtime verification'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ===================================================================
+  # Stage 1: Validation Before Build (Backend & Frontend Quality Gates)
+  # ===================================================================
+  pre-build-validation:
+    name: Pre-Build Backend & Frontend Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify Strict Production Policies
+        run: |
+          python scripts/verify_production_policies.py
+
+      - name: Set up Java 21 (Eclipse Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Run Backend Unit & Security Tests
+        run: |
+          mvn -f backend/pom.xml clean test
+
+      - name: Set up Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run Frontend Linter (Oxlint)
+        run: |
+          npm --prefix frontend run lint
+
+      - name: Build Frontend Production Bundle
+        run: |
+          npm --prefix frontend run build
+
+  # ===================================================================
+  # Stage 2: Docker Image Build & Container Runtime Verification
+  # ===================================================================
+  build-and-verify-container:
+    name: Build & Verify Docker Image (Local Runner Only — No Push)
+    runs-on: ubuntu-latest
+    needs: [pre-build-validation]
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Establish Canonical Artifact Registry Image Reference
+        id: meta
+        run: |
+          # Target package matches dedicated staging repository: queueless-staging/backend
+          TARGET_PACKAGE="asia-south1-docker.pkg.dev/queueless-prod-514814/queueless-staging/backend"
+          BUILD_TAG="verify-${{ github.run_id }}-${{ github.run_attempt }}"
+          IMAGE_URI="${TARGET_PACKAGE}:${BUILD_TAG}"
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "build_tag=${BUILD_TAG}" >> $GITHUB_OUTPUT
+          echo "Canonical verification image URI: ${IMAGE_URI}"
+
+      - name: Build Docker Image from Exact Source (No Push)
+        run: |
+          echo "Building container image from Dockerfile without pushing..."
+          docker build \
+            --tag "${{ steps.meta.outputs.image_uri }}" \
+            -f Dockerfile .
+
+      - name: Validate Container Filesystem & Runtime Environment
+        run: |
+          IMAGE="${{ steps.meta.outputs.image_uri }}"
+          echo "=== 1. Validating Java 21 Runtime Inside Image ==="
+          JAVA_VER=$(docker run --rm "${IMAGE}" java -version 2>&1)
+          echo "${JAVA_VER}"
+          echo "${JAVA_VER}" | grep -q "21\." || { echo "ERROR: Expected Java 21 not found"; exit 1; }
+
+          echo "=== 2. Validating Application JAR Packaging ==="
+          docker run --rm "${IMAGE}" ls -la /app/app.jar || { echo "ERROR: /app/app.jar missing!"; exit 1; }
+          JAR_SIZE=$(docker run --rm "${IMAGE}" stat -c %s /app/app.jar)
+          echo "Application JAR size: ${JAR_SIZE} bytes"
+          if [ "${JAR_SIZE}" -lt 1000000 ]; then
+            echo "ERROR: JAR size abnormally small (${JAR_SIZE} bytes)"
+            exit 1
+          fi
+
+          echo "=== 3. Validating Non-Root Runtime User ==="
+          USER_NAME=$(docker run --rm "${IMAGE}" whoami)
+          USER_ID=$(docker run --rm "${IMAGE}" id -u)
+          GROUP_ID=$(docker run --rm "${IMAGE}" id -g)
+          echo "Container runtime user: ${USER_NAME} (UID=${USER_ID}, GID=${GROUP_ID})"
+          if [ "${USER_NAME}" != "queueless" ] || [ "${USER_ID}" -eq 0 ]; then
+            echo "ERROR: Container must run as non-root user 'queueless' (UID != 0)"
+            exit 1
+          fi
+
+          echo "=== 4. Validating Port 8080 Configuration ==="
+          EXPOSED_PORTS=$(docker inspect --format='{{json .Config.ExposedPorts}}' "${IMAGE}")
+          echo "Configured exposed ports: ${EXPOSED_PORTS}"
+          echo "${EXPOSED_PORTS}" | grep -q "8080" || { echo "ERROR: Port 8080 not exposed in container metadata"; exit 1; }
+
+      - name: Test Container Startup & Staging Health Probe
+        run: |
+          IMAGE="${{ steps.meta.outputs.image_uri }}"
+          echo "Launching ephemeral container with staging profile..."
+          CONTAINER_ID=$(docker run -d \
+            -p 8080:8080 \
+            -e SPRING_PROFILES_ACTIVE=staging \
+            -e PORT=8080 \
+            -e SERVER_PORT=8080 \
+            "${IMAGE}")
+
+          echo "Ephemeral container ID: ${CONTAINER_ID}"
+
+          # Wait for Spring Boot actuator health endpoint
+          HEALTH_STATUS="DOWN"
+          for i in $(seq 1 45); do
+            RESPONSE=$(curl -s http://localhost:8080/actuator/health || true)
+            if echo "${RESPONSE}" | grep -q "UP"; then
+              echo "Health probe UP on attempt ${i} (Actuator response: ${RESPONSE})"
+              HEALTH_STATUS="UP"
+              break
+            fi
+            echo "Waiting for health check UP (attempt ${i}/45)..."
+            sleep 2
+          done
+
+          # Capture and display container logs
+          echo "=== Ephemeral Container Logs ==="
+          docker logs "${CONTAINER_ID}" --tail 50
+
+          # Clean up ephemeral container
+          docker stop "${CONTAINER_ID}"
+          docker rm "${CONTAINER_ID}"
+
+          if [ "${HEALTH_STATUS}" != "UP" ]; then
+            echo "FATAL: Container health probe failed to reach UP state within 90 seconds"
+            exit 1
+          fi
+
+      - name: Enforce Strict No-Push & Record Image Metadata
+        run: |
+          IMAGE="${{ steps.meta.outputs.image_uri }}"
+          IMAGE_ID=$(docker inspect --format='{{.Id}}' "${IMAGE}")
+          IMAGE_SIZE_BYTES=$(docker inspect --format='{{.Size}}' "${IMAGE}")
+          IMAGE_SIZE_MB=$(echo "scale=2; ${IMAGE_SIZE_BYTES} / 1048576" | bc)
+          IMAGE_CREATED=$(docker inspect --format='{{.Created}}' "${IMAGE}")
+          IMAGE_ARCH=$(docker inspect --format='{{.Architecture}}' "${IMAGE}")
+          IMAGE_OS=$(docker inspect --format='{{.Os}}' "${IMAGE}")
+
+          cat <<EOF > docker-build-verification-metadata.json
+          {
+            "verification_status": "VERIFIED_LOCAL_RUNNER",
+            "push_action": "ENFORCED_NO_PUSH",
+            "workflow_run_id": "${{ github.run_id }}",
+            "workflow_run_attempt": "${{ github.run_attempt }}",
+            "commit_sha": "${{ github.sha }}",
+            "image_uri": "${IMAGE}",
+            "image_id": "${IMAGE_ID}",
+            "image_size_bytes": ${IMAGE_SIZE_BYTES},
+            "image_size_mb": "${IMAGE_SIZE_MB} MB",
+            "image_created": "${IMAGE_CREATED}",
+            "architecture": "${IMAGE_ARCH}",
+            "os": "${IMAGE_OS}",
+            "runtime_user": "queueless",
+            "runtime_port": 8080,
+            "health_probe": "UP"
+          }
+          EOF
+
+          echo "=== Docker Build Verification Summary ==="
+          cat docker-build-verification-metadata.json
+
+          # Publish to GitHub Actions Job Summary
+          cat <<EOF >> $GITHUB_STEP_SUMMARY
+          ## QueueLess Docker Build Verification (No Push)
+          - **Status:** ✅ VERIFIED (Build succeeded on GitHub Actions Ubuntu Runner)
+          - **Target AR Package:** \`asia-south1-docker.pkg.dev/queueless-prod-514814/queueless-staging/backend\`
+          - **Verification Tag:** \`${{ steps.meta.outputs.build_tag }}\`
+          - **Image ID:** \`${IMAGE_ID}\`
+          - **Image Size:** ${IMAGE_SIZE_MB} MB
+          - **Architecture:** ${IMAGE_ARCH} / ${IMAGE_OS}
+          - **Runtime User:** \`queueless\` (non-root)
+          - **Exposed Port:** \`8080\`
+          - **Staging Health Probe:** ✅ \`UP\`
+          - **Network Push Guard:** 🛡️ Zero images pushed. Zero credentials requested.
+          EOF
+
+      - name: Archive Image Verification Metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-build-verification-metadata
+          path: docker-build-verification-metadata.json
+          retention-days: 14

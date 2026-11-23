@@ -112,44 +112,58 @@ It executes five parallel and staged quality gates:
 ### 2.2. Continuous Delivery & Deployment (`.github/workflows/cd.yml`)
 
 The CD workflow triggers on:
-- Direct pushes or merges to the `master` branch.
-- Manual trigger via `workflow_dispatch` with environment selection (`staging_then_production`, `staging_only`, `production_only`).
+- Manual trigger via `workflow_dispatch` with deployment scope selection:
+  - `staging_only`: Staging deployment & automated smoke tests.
+  - `staging_and_production`: Staging deploy + smoke tests + cryptographic attestation + manual approval gate + deterministic Crane promotion + production deploy.
 
 #### Security & Least-Privilege Permissions:
 - Global `permissions: contents: read`.
 - Deployment and artifact jobs explicitly require `id-token: write` to authenticate to GCP via **Workload Identity Federation (WIF)**, eliminating static JSON service account keys (`GCP_SA_KEY`).
+- Dedicated service accounts per lifecycle stage (`GCP_STAGING_DEPLOYER_SA`, `GCP_PROMOTER_SA`, `GCP_PROD_DEPLOYER_SA`) eliminate monolithic admin accounts and shared service account fallbacks.
+- Routine Cloud Run deployments do not require `roles/run.admin` or `--allow-unauthenticated`. Ingress policy (`allUsers` -> `roles/run.invoker`) is bound once during initial environment bootstrap.
 
 #### Stage 1: Master CI Gate
-Re-runs full 10-policy verification, unit/security tests, and Playwright E2E tests to ensure absolute branch health.
+Re-runs full 10-policy verification, unit/security tests, and Playwright E2E tests to ensure absolute branch health before building deployment artifacts.
 
-#### Stage 2: Immutable Artifact Creation ("Build Once, Promote Everywhere")
+#### Stage 2: Immutable Artifact Creation & Cryptographic Attestation
 - Computes git commit SHA and short SHA (e.g. `c2df109`).
-- Authenticates to GCP via Workload Identity Federation.
+- Authenticates to GCP via Workload Identity Federation using `GCP_STAGING_DEPLOYER_SA`.
 - Builds the multi-stage Docker container image from root `Dockerfile`.
 - Tags container image with immutable tags:
-  - `asia-south1-docker.pkg.dev/${GCP_PROJECT_ID}/queueless/queueless-backend:${COMMIT_SHA}`
-  - `asia-south1-docker.pkg.dev/${GCP_PROJECT_ID}/queueless/queueless-backend:sha-${SHORT_SHA}`
-- Pushes image to Google Artifact Registry.
-- Generates `release-metadata.json` recording commit SHA, author, timestamp, branch, and image URI.
+  - `asia-south1-docker.pkg.dev/${GCP_PROJECT_ID}/queueless-staging/backend:${COMMIT_SHA}`
+  - `asia-south1-docker.pkg.dev/${GCP_PROJECT_ID}/queueless-staging/backend:sha-${SHORT_SHA}`
+- Pushes image to Staging Google Artifact Registry.
+- Resolves the authoritative immutable image digest (`sha256:...`).
+- Generates SLSA cryptographic build provenance attestation (`actions/attest-build-provenance`).
+- Generates `release-metadata.json` recording commit SHA, author, timestamp, branch, and staging image digest.
 - Bundles frontend dist assets and stores them as GitHub Actions artifacts.
 
 #### Stage 3: Staging Deployment
 - Validates downloaded frontend artifact layout (`frontend/dist/index.html`).
-- Authenticates to GCP via Workload Identity Federation.
+- Authenticates to GCP via Workload Identity Federation using `GCP_STAGING_DEPLOYER_SA`.
 - Deploys backend image to Google Cloud Run staging service (`queueless-backend-staging`) in `asia-south1`.
-- Injects non-sensitive environment configuration via `--set-env-vars="SPRING_PROFILES_ACTIVE=prod"`.
-- Securely mounts credentials from Google Secret Manager via `--set-secrets="SPRING_DATASOURCE_URL=QUEUELESS_STAGING_DB_URL:latest,APP_JWT_SECRET=QUEUELESS_STAGING_JWT_SECRET:latest,APP_ADMIN_KEY=QUEUELESS_STAGING_ADMIN_KEY:latest"`.
+- Configures dedicated staging runtime service account `queueless-staging-sa@${GCP_PROJECT_ID}.iam.gserviceaccount.com`.
+- Injects non-sensitive environment configuration via `--set-env-vars="SPRING_PROFILES_ACTIVE=staging,APP_DATASOURCE_EXPECTED_ENV_TYPE=STAGING,APP_DATASOURCE_EXPECTED_PROJECT_REF=${QUEUELESS_STAGING_SUPABASE_PROJECT_REF}"`.
+- Securely mounts credentials from Google Secret Manager via `--set-secrets="SPRING_DATASOURCE_URL=QUEUELESS_STAGING_DB_URL:latest,APP_JWT_SECRET=QUEUELESS_STAGING_JWT_SECRET:latest,APP_ADMIN_KEY=QUEUELESS_STAGING_ADMIN_KEY:latest,APP_SUPERADMIN_PASSWORD=QUEUELESS_STAGING_SUPERADMIN_PASS:latest,SPRING_FLYWAY_USER=QUEUELESS_STAGING_MIGRATOR_USER:latest,SPRING_FLYWAY_PASSWORD=QUEUELESS_STAGING_MIGRATOR_PASS:latest"`.
 - Deploys frontend to Cloudflare Worker Staging environment without rebuilding (`wrangler deploy --env staging --no-build`).
 - Executes [`scripts/smoke_test.py`](file:///D:/PROJECTS/QUEUELESS/scripts/smoke_test.py) against the staging endpoint.
 
-#### Stage 4: Production Deployment (Manual Approval Gate)
+#### Stage 4: Deterministic Release Promotion (Crane OCI Copy)
+- Bound to GitHub Environment **`production-promotion`** with mandatory manual reviewer approval.
+- Authenticates to GCP via Workload Identity Federation using `GCP_PROMOTER_SA`.
+- Verifies cryptographic SLSA build provenance of the staging container image.
+- Uses Crane OCI tool (`scripts/promote_image.py`) to copy the exact verified staging image byte-for-byte to the production repository (`asia-south1-docker.pkg.dev/${GCP_PROJECT_ID}/queueless-prod/backend`).
+- Validates that source and destination SHA-256 digests match bit-for-bit without rebuilding or recompressing layers.
+
+#### Stage 5: Production Deployment (Manual Approval Gate)
 - Bound to GitHub Environment **`production`**.
 - Native GitHub manual reviewer sign-off required before execution starts.
 - Validates downloaded frontend artifact layout (`frontend/dist/index.html`).
-- Authenticates to GCP via Workload Identity Federation.
-- Promotes the **exact same immutable container image** (`${COMMIT_SHA}`) to production Cloud Run (`queueless-backend`).
-- Injects non-sensitive config via `--set-env-vars="SPRING_PROFILES_ACTIVE=prod"`.
-- Securely mounts production credentials from Google Secret Manager via `--set-secrets="SPRING_DATASOURCE_URL=QUEUELESS_PROD_DB_URL:latest,APP_JWT_SECRET=QUEUELESS_PROD_JWT_SECRET:latest,APP_ADMIN_KEY=QUEUELESS_PROD_ADMIN_KEY:latest"`.
+- Authenticates to GCP via Workload Identity Federation using `GCP_PROD_DEPLOYER_SA`.
+- Deploys the promoted immutable image (`@${VERIFIED_DIGEST}`) to production Cloud Run (`queueless-backend`) in `asia-south1`.
+- Configures dedicated production runtime service account `queueless-prod-sa@${GCP_PROJECT_ID}.iam.gserviceaccount.com`.
+- Injects non-sensitive config via `--set-env-vars="SPRING_PROFILES_ACTIVE=prod,APP_DATASOURCE_EXPECTED_ENV_TYPE=PRODUCTION,APP_DATASOURCE_EXPECTED_PROJECT_REF=${QUEUELESS_PROD_SUPABASE_PROJECT_REF}"`.
+- Securely mounts production credentials from Google Secret Manager via `--set-secrets="SPRING_DATASOURCE_URL=QUEUELESS_PROD_DB_URL:latest,APP_JWT_SECRET=QUEUELESS_PROD_JWT_SECRET:latest,APP_ADMIN_KEY=QUEUELESS_PROD_ADMIN_KEY:latest,SPRING_FLYWAY_USER=QUEUELESS_PROD_MIGRATOR_USER:latest,SPRING_FLYWAY_PASSWORD=QUEUELESS_PROD_MIGRATOR_PASS:latest"`.
 - Deploys frontend to Cloudflare Worker Production without rebuilding (`wrangler deploy --no-build`).
 - Executes [`scripts/smoke_test.py`](file:///D:/PROJECTS/QUEUELESS/scripts/smoke_test.py) against production URL.
 

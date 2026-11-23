@@ -30,3 +30,9 @@ frontend/playwright-report/
 Thumbs.db
 
 .wrangler/
+
+# Python bytecode & virtualenvs
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/

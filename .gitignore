@@ -36,3 +36,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .venv/
+
+# Local Secrets (Never commit credentials)
+.secrets/
+*.secret.sql

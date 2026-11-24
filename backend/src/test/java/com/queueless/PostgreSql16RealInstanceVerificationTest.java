@@ -196,8 +196,10 @@ public class PostgreSql16RealInstanceVerificationTest {
         // Step C: Load scripts/provision_staging_db_roles.sql, replace passwords, execute
         Path stagingPath = findScriptPath("provision_staging_db_roles.sql");
         String stagingSql = Files.readString(stagingPath);
-        stagingSql = stagingSql.replace("REPLACE_WITH_STRONG_STAGING_MIGRATOR_PASSWORD", "Valid_Staging_Migrator_Pass_16!");
-        stagingSql = stagingSql.replace("REPLACE_WITH_STRONG_STAGING_APP_PASSWORD", "Valid_Staging_App_Pass_16!");
+        stagingSql = stagingSql.replace("REPLACE_WITH_STRONG_STAGING_MIGRATOR_PASSWORD", "Valid_Staging_Migrator_Pass_16!")
+                .replace("<STRONG_STAGING_MIGRATOR_PASSWORD>", "Valid_Staging_Migrator_Pass_16!")
+                .replace("REPLACE_WITH_STRONG_STAGING_APP_PASSWORD", "Valid_Staging_App_Pass_16!")
+                .replace("<STRONG_STAGING_APP_PASSWORD>", "Valid_Staging_App_Pass_16!");
 
         // Split into main execution part (before verification queries & rollback comments)
         int verificationIndex = stagingSql.indexOf("-- Verification Queries");
@@ -283,24 +285,13 @@ public class PostgreSql16RealInstanceVerificationTest {
             }
         }
 
-        // Step D: Extract and execute actual rollback block
-        int rollbackDoIndex = stagingSql.indexOf("DO $$", stagingSql.indexOf("-- Safe Rollback Guidance"));
-        assertTrue(rollbackDoIndex > 0, "Rollback DO block must exist in script");
-        String commentedRollback = stagingSql.substring(rollbackDoIndex);
-        StringBuilder rollbackSql = new StringBuilder();
-        for (String line : commentedRollback.split("\n")) {
-            if (line.startsWith("-- ")) {
-                rollbackSql.append(line.substring(3)).append("\n");
-            } else if (line.startsWith("--")) {
-                rollbackSql.append(line.substring(2)).append("\n");
-            } else {
-                rollbackSql.append(line).append("\n");
-            }
-        }
+        // Step D: Execute actual rollback script
+        Path rollbackPath = findScriptPath("rollback_staging_db_roles.sql");
+        String rollbackSql = Files.readString(rollbackPath);
 
         try (Connection conn = superuserDs.getConnection();
              Statement stmt = conn.createStatement()) {
-            stmt.execute(rollbackSql.toString());
+            stmt.execute(rollbackSql);
             System.out.println("Staging rollback executed successfully on PG 16.");
 
             // Verify table ownership restored to postgres

@@ -3,13 +3,21 @@ name: QueueLess — Render Free Backend Deployment
 on:
   workflow_dispatch:
     inputs:
+      target_env:
+        description: 'Target environment to deploy'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
       reason:
         description: 'Deployment justification or change description'
         required: false
         default: 'Manual deployment trigger'
 
 concurrency:
-  group: deploy-staging
+  group: deploy-${{ inputs.target_env || 'staging' }}
   cancel-in-progress: false # Never interrupt an ongoing deployment
 
 permissions:
@@ -32,36 +40,41 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Validate Staging Configuration
+      - name: Install Python Dependencies
         run: |
-          python deploy/scripts/validate_config.py deploy/config/staging.yaml
+          python -m pip install --upgrade pip
+          pip install pyyaml jsonschema
 
-      - name: Resolve Staging Target
+      - name: Validate Target Configuration
+        run: |
+          python deploy/scripts/validate_config.py deploy/config/${{ inputs.target_env || 'staging' }}.yaml
+
+      - name: Resolve Target Metadata
         id: resolve
         run: |
-          python deploy/scripts/resolve_deployment_target.py deploy/config/staging.yaml --github-output "$GITHUB_OUTPUT"
+          python deploy/scripts/resolve_deployment_target.py deploy/config/${{ inputs.target_env || 'staging' }}.yaml --github-output "$GITHUB_OUTPUT"
 
       - name: Verify Active Provider is Render
         run: |
           if [ "${{ steps.resolve.outputs.ACTIVE_PROVIDER }}" != "render" ]; then
-            echo "FATAL: deploy/config/staging.yaml specifies ACTIVE_PROVIDER='${{ steps.resolve.outputs.ACTIVE_PROVIDER }}', not 'render'."
+            echo "FATAL: deploy/config/${{ inputs.target_env || 'staging' }}.yaml specifies ACTIVE_PROVIDER='${{ steps.resolve.outputs.ACTIVE_PROVIDER }}', not 'render'."
             echo "Aborting Render deployment to prevent configuration drift."
             exit 1
           fi
 
       - name: Validate Render Deploy Hook Secret (Fail Closed)
         env:
-          RENDER_HOOK: ${{ secrets.RENDER_STAGING_DEPLOY_HOOK_URL || secrets.RENDER_DEPLOY_HOOK_URL }}
+          RENDER_HOOK: ${{ (inputs.target_env == 'production' && secrets.RENDER_PROD_DEPLOY_HOOK_URL) || secrets.RENDER_STAGING_DEPLOY_HOOK_URL || secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
           if [ -z "$RENDER_HOOK" ]; then
-            echo "FATAL: Neither RENDER_STAGING_DEPLOY_HOOK_URL nor RENDER_DEPLOY_HOOK_URL is configured in repository secrets."
+            echo "FATAL: Neither RENDER_STAGING_DEPLOY_HOOK_URL / RENDER_PROD_DEPLOY_HOOK_URL nor RENDER_DEPLOY_HOOK_URL is configured in repository secrets."
             exit 1
           fi
           echo "Render deploy hook secret verified."
 
       - name: Trigger Render Deploy Hook Webhook
         env:
-          RENDER_HOOK: ${{ secrets.RENDER_STAGING_DEPLOY_HOOK_URL || secrets.RENDER_DEPLOY_HOOK_URL }}
+          RENDER_HOOK: ${{ (inputs.target_env == 'production' && secrets.RENDER_PROD_DEPLOY_HOOK_URL) || secrets.RENDER_STAGING_DEPLOY_HOOK_URL || secrets.RENDER_DEPLOY_HOOK_URL }}
           DEPLOY_REASON: ${{ inputs.reason }}
         run: |
           echo "Dispatching deployment hook to Render for service '${{ steps.resolve.outputs.BACKEND_SERVICE_NAME }}'..."
@@ -92,17 +105,23 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
+          EXTRA_FLAGS=""
+          if [ "${{ inputs.target_env || 'staging' }}" = "production" ]; then
+            EXTRA_FLAGS="--confirm-production --initial-bootstrap"
+          fi
           python deploy/scripts/switch_edge_traffic.py \
-            --env staging \
+            --env "${{ inputs.target_env || 'staging' }}" \
             --worker-name "${{ steps.resolve.outputs.EDGE_WORKER_NAME }}" \
             --new-backend-url "${{ steps.resolve.outputs.BACKEND_URL }}" \
             --backend-health-url "${{ steps.resolve.outputs.BACKEND_HEALTH_URL }}" \
-            --edge-public-url "${{ steps.resolve.outputs.EDGE_PUBLIC_URL }}"
+            --edge-public-url "${{ steps.resolve.outputs.EDGE_PUBLIC_URL }}" \
+            $EXTRA_FLAGS
 
       - name: Deployment Instructions & Monitoring Notice
         run: |
           echo "=================================================================="
           echo "Render Deployment Trigger & Verification Complete"
+          echo "Environment: ${{ inputs.target_env || 'staging' }}"
           echo "Service: ${{ steps.resolve.outputs.BACKEND_SERVICE_NAME }}"
           echo "Direct Health Check: ${{ steps.resolve.outputs.BACKEND_HEALTH_URL }}"
           echo "Edge Public URL: ${{ steps.resolve.outputs.EDGE_PUBLIC_URL }}"

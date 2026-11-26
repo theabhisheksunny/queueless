@@ -38,6 +38,9 @@ public class Shop {
     @Column(nullable = false, length = 80)
     private String category = "General";
 
+    @Column(name = "business_type", length = 100)
+    private String businessType;
+
     @Column(nullable = false)
     private Integer avgServiceDurationMinutes = 15;
 
@@ -49,6 +52,9 @@ public class Shop {
 
     @Column(name = "registration_fee_paid", nullable = false, precision = 10, scale = 2)
     private BigDecimal registrationFeePaid = BigDecimal.ZERO;
+
+    @Column(name = "public_merchant_code", nullable = false, unique = true, length = 32)
+    private String publicMerchantCode;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -62,6 +68,9 @@ public class Shop {
         this.updatedAt = LocalDateTime.now();
         if (this.avgServiceDurationMinutes == null || this.avgServiceDurationMinutes <= 0) {
             this.avgServiceDurationMinutes = 15;
+        }
+        if (this.publicMerchantCode == null || this.publicMerchantCode.isBlank()) {
+            this.publicMerchantCode = com.queueless.util.PublicMerchantCodeGenerator.generate();
         }
     }
 
@@ -109,6 +118,14 @@ public class Shop {
 
     public void setCategory(String category) {
         this.category = category;
+    }
+
+    public String getBusinessType() {
+        return businessType;
+    }
+
+    public void setBusinessType(String businessType) {
+        this.businessType = businessType;
     }
 
     public Integer getAvgServiceDurationMinutes() {
@@ -189,5 +206,13 @@ public class Shop {
 
     public void setRegistrationFeePaid(BigDecimal registrationFeePaid) {
         this.registrationFeePaid = registrationFeePaid;
+    }
+
+    public String getPublicMerchantCode() {
+        return publicMerchantCode;
+    }
+
+    public void setPublicMerchantCode(String publicMerchantCode) {
+        this.publicMerchantCode = publicMerchantCode;
     }
 }

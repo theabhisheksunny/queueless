@@ -205,7 +205,8 @@ DECLARE
         'device_replacement_requests',
         'device_auth_challenges',
         'idempotency_keys',
-        'flyway_schema_history'
+        'flyway_schema_history',
+        'sse_tickets'
     ];
 BEGIN
     SELECT COALESCE(rolsuper, FALSE) INTO is_super FROM pg_roles WHERE rolname = caller_role;

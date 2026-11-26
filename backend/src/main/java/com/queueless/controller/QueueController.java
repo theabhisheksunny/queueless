@@ -3,15 +3,20 @@ package com.queueless.controller;
 import com.queueless.dto.CustomerEditRequest;
 import com.queueless.dto.CustomerManualAddRequest;
 import com.queueless.dto.QueueDashboardResponse;
+import com.queueless.dto.SseTicketResponse;
 import com.queueless.entity.CustomerQueueStatus;
 import com.queueless.entity.Shop;
 import com.queueless.service.AuthenticatedShopResolver;
 import com.queueless.service.EntitlementService;
 import com.queueless.service.QueueService;
 import com.queueless.service.SseEmitterService;
+import com.queueless.service.SseTicketService;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -25,15 +30,18 @@ public class QueueController {
     private final SseEmitterService sseEmitterService;
     private final AuthenticatedShopResolver shopResolver;
     private final EntitlementService entitlementService;
+    private final SseTicketService sseTicketService;
 
     public QueueController(QueueService queueService,
                            SseEmitterService sseEmitterService,
                            AuthenticatedShopResolver shopResolver,
-                           EntitlementService entitlementService) {
+                           EntitlementService entitlementService,
+                           SseTicketService sseTicketService) {
         this.queueService = queueService;
         this.sseEmitterService = sseEmitterService;
         this.shopResolver = shopResolver;
         this.entitlementService = entitlementService;
+        this.sseTicketService = sseTicketService;
     }
 
     private Shop resolveTargetShop(Principal principal, Long paramShopId, Long headerShopId) {
@@ -122,14 +130,64 @@ public class QueueController {
     }
 
     /**
-     * Real-time Server-Sent Events stream for Owner and Staff dashboard.
+     * Issues an ephemeral, single-use ticket for owner/staff SSE stream connection.
+     * Prevents long-lived JWT bearer tokens from being exposed in URL query parameters.
      */
-    @GetMapping(value = "/stream/owner", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter streamOwnerUpdates(
+    @PostMapping("/sse-ticket")
+    public ResponseEntity<SseTicketResponse> createSseTicket(
             Principal principal,
             @RequestParam(value = "shopId", required = false) Long shopId,
             @RequestHeader(value = "X-Shop-Id", required = false) Long headerShopId) {
         Shop shop = resolveTargetShop(principal, shopId, headerShopId);
-        return sseEmitterService.createOwnerEmitter(shop.getId());
+        com.queueless.entity.User user = shopResolver.resolveUser(principal);
+        SseTicketService.SseTicket ticket = sseTicketService.issueTicket(user.getId(), shop.getId());
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store, no-cache, must-revalidate, max-age=0")
+                .header(HttpHeaders.PRAGMA, "no-cache")
+                .body(new SseTicketResponse(ticket.ticket(), SseTicketService.TICKET_TTL_SECONDS));
+    }
+
+    /**
+     * Real-time Server-Sent Events stream for Owner and Staff dashboard.
+     * Supports:
+     * 1. Direct header authentication (Authorization: Bearer <jwt>) via fetch-based streaming. Zero URI exposure.
+     * 2. Header-based ephemeral ticket (X-SSE-Ticket: stk_...). Zero URI exposure.
+     * 3. Query parameter single-use ticket (?ticket=stk_...) for legacy native EventSource fallback.
+     * Long-lived JWT tokens are explicitly forbidden as URL parameters.
+     */
+    @GetMapping(value = {"/stream/owner", "/stream", "/{shopId}/stream"}, produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamOwnerUpdates(
+            Principal principal,
+            @PathVariable(value = "shopId", required = false) Long pathShopId,
+            @RequestParam(value = "ticket", required = false) String ticket,
+            @RequestHeader(value = "X-SSE-Ticket", required = false) String headerTicket,
+            @RequestParam(value = "shopId", required = false) Long paramShopId,
+            @RequestHeader(value = "X-Shop-Id", required = false) Long headerShopId,
+            HttpServletResponse response) {
+        if (response != null) {
+            response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache, no-transform");
+            response.setHeader("X-Accel-Buffering", "no");
+        }
+        Long requestedShop = pathShopId != null ? pathShopId : (paramShopId != null ? paramShopId : headerShopId);
+        Long targetShopId;
+
+        // Priority 1: Direct Header-Authenticated Streaming (No credentials in URI)
+        if (principal != null) {
+            Shop shop = resolveTargetShop(principal, requestedShop, null);
+            targetShopId = shop.getId();
+        } else {
+            // Priority 2: Ephemeral Single-Use Ticket (Header preferred over Query Param)
+            String effectiveTicket = (headerTicket != null && !headerTicket.isBlank()) ? headerTicket.trim() : ticket;
+            if (effectiveTicket != null && !effectiveTicket.isBlank()) {
+                if (requestedShop == null) {
+                    throw new AccessDeniedException("Access denied: Tenant shop identification is strictly required for SSE stream.");
+                }
+                SseTicketService.SseTicket consumed = sseTicketService.consumeTicket(effectiveTicket, requestedShop, null);
+                targetShopId = consumed.shopId();
+            } else {
+                throw new AccessDeniedException("Access denied: Authentication required for queue stream.");
+            }
+        }
+        return sseEmitterService.createOwnerEmitter(targetShopId);
     }
 }

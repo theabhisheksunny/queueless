@@ -2,6 +2,7 @@ package com.queueless.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 public class RegisterRequest {
 
@@ -28,6 +29,10 @@ public class RegisterRequest {
     private String shopName;
 
     private String category = "General";
+
+    @NotBlank(message = "Business type is required")
+    @Size(max = 100, message = "Business type must not exceed 100 characters")
+    private String businessType;
 
     private Integer avgServiceDurationMinutes = 15;
 
@@ -111,5 +116,13 @@ public class RegisterRequest {
 
     public void setAvgServiceDurationMinutes(Integer avgServiceDurationMinutes) {
         this.avgServiceDurationMinutes = avgServiceDurationMinutes;
+    }
+
+    public String getBusinessType() {
+        return businessType;
+    }
+
+    public void setBusinessType(String businessType) {
+        this.businessType = businessType;
     }
 }

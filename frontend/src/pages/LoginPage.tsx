@@ -28,18 +28,21 @@ import {
   AlertCircle,
   CheckCircle2,
   Smartphone,
-  ShieldAlert
+  ShieldAlert,
+  Briefcase
 } from 'lucide-react';
 
 const CATEGORIES = [
-  'Barber Shop',
-  'Salon & Spa',
-  'Clinic & Doctor',
-  'Small Hospital',
-  'Restaurant / Cafe',
-  'Repair Shop',
-  'Automobile Service',
-  'Other Local Business',
+  'Salon & Personal Care',
+  'Healthcare & Medical',
+  'Restaurant & Food',
+  'Retail & Shopping',
+  'Repair & Maintenance',
+  'Automobile Services',
+  'Education & Coaching',
+  'Professional Services',
+  'Home & Local Services',
+  'Other Business',
 ];
 
 export const LoginPage: React.FC = () => {
@@ -91,6 +94,7 @@ export const LoginPage: React.FC = () => {
   const [fullName, setFullName] = useState('');
   const [shopName, setShopName] = useState('');
   const [category, setCategory] = useState(CATEGORIES[0]);
+  const [businessType, setBusinessType] = useState('');
   const [avgServiceDurationMinutes, setAvgServiceDurationMinutes] = useState(15);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -207,6 +211,16 @@ export const LoginPage: React.FC = () => {
           return;
         }
 
+        if (!shopName.trim()) {
+          setError('Shop name is required.');
+          return;
+        }
+
+        if (!businessType.trim()) {
+          setError('Business type is required.');
+          return;
+        }
+
         if (effectivePin.length !== 6 || !/^\d{6}$/.test(effectivePin)) {
           setError('PIN must be exactly 6 numeric digits (0-9).');
           return;
@@ -226,6 +240,7 @@ export const LoginPage: React.FC = () => {
           password: effectivePin,
           shopName: shopName.trim(),
           category,
+          businessType: businessType.trim(),
           avgServiceDurationMinutes,
           deviceFingerprint: navigator.userAgent,
         });
@@ -559,10 +574,13 @@ export const LoginPage: React.FC = () => {
                       required
                       value={shopName}
                       onChange={(e) => setShopName(e.target.value)}
-                      placeholder="e.g. Royal Hair Salon & Spa"
+                      placeholder={t('shopNamePlaceholder')}
                       className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
                     />
                   </div>
+                  <p className="text-xs text-slate-500 mt-1 font-medium">
+                    {t('shopNameHelper')}
+                  </p>
                 </div>
 
                 {/* Business Category */}
@@ -581,6 +599,30 @@ export const LoginPage: React.FC = () => {
                       </option>
                     ))}
                   </select>
+                  <p className="text-xs text-slate-500 mt-1 font-medium">
+                    {t('categoryHelper')}
+                  </p>
+                </div>
+
+                {/* Business Type */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    {t('businessType')} <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <Briefcase className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      required
+                      value={businessType}
+                      onChange={(e) => setBusinessType(e.target.value)}
+                      placeholder={t('businessTypePlaceholder')}
+                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-slate-900 font-medium transition-all"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1 font-medium">
+                    {t('businessTypeHelper')}
+                  </p>
                 </div>
 
                 {/* Full Name */}

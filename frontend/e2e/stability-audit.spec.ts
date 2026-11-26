@@ -25,7 +25,6 @@ test.describe('QueueLess Real-World Stability Audit & Workflow Verification', ()
     await ownerPage.getByRole('button', { name: /Create Account|साइन अप/i }).click();
 
     const uniqueId = Date.now();
-    const ownerEmail = `audit_owner_${uniqueId}@queueless.com`;
     const shopName = `Dr. Mehta Dental Clinic ${uniqueId % 1000}`;
 
     await ownerPage.fill('input[placeholder*="Royal Hair Salon"]', shopName);

@@ -56,7 +56,8 @@ DECLARE
         'customer_push_subscriptions', 'businesses', 'shop_memberships',
         'subscription_seats', 'payment_records', 'user_sessions', 'audit_logs',
         'device_registrations', 'device_replacement_requests',
-        'device_auth_challenges', 'idempotency_keys', 'flyway_schema_history'
+        'device_auth_challenges', 'idempotency_keys', 'flyway_schema_history',
+        'sse_tickets'
     ];
 BEGIN
     -- ========================================================================

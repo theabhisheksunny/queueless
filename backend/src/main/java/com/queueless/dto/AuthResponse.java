@@ -11,6 +11,7 @@ public class AuthResponse {
     private Long shopId;
     private String shopName;
     private String category;
+    private String businessType;
     private boolean subscriptionActive;
     private long subscriptionDaysRemaining;
     private java.util.List<BusinessResponse> businesses = new java.util.ArrayList<>();
@@ -109,6 +110,14 @@ public class AuthResponse {
 
     public void setCategory(String category) {
         this.category = category;
+    }
+
+    public String getBusinessType() {
+        return businessType;
+    }
+
+    public void setBusinessType(String businessType) {
+        this.businessType = businessType;
     }
 
     public boolean isSubscriptionActive() {

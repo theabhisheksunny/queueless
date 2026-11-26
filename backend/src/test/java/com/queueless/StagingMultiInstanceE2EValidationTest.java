@@ -165,6 +165,9 @@ public class StagingMultiInstanceE2EValidationTest {
     private PlatformTransactionManager transactionManager;
     private TransactionTemplate transactionTemplate;
 
+    @Autowired
+    private ShopService shopService;
+
     // Instance B (simulates second horizontally-scaled Cloud Run container)
     private ActiveQueueManager activeQueueManagerInstanceB;
     private QueueService queueServiceInstanceB;
@@ -206,7 +209,8 @@ public class StagingMultiInstanceE2EValidationTest {
                     auditLogRepository,
                     activeQueueManagerInstanceB,
                     subscriptionService,
-                    idempotencyKeyRepository
+                    idempotencyKeyRepository,
+                    shopService
             );
         }
     }

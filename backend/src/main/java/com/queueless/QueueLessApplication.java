@@ -96,11 +96,11 @@ public class QueueLessApplication {
     @Bean
     @Profile({"dev", "test", "local"})
     public CommandLineRunner seedDemoData(UserRepository userRepo,
-                                          ShopRepository shopRepo,
                                           SubscriptionRepository subscriptionRepo,
                                           TrialEligibilityLedgerRepository trialLedgerRepo,
                                           PasswordEncoder passwordEncoder,
                                           PhoneNormalizationService phoneNormalizationService,
+                                          com.queueless.service.ShopService shopService,
                                           Environment env) {
         return args -> {
             // Defensive secondary guard against accidental multi-profile activation with prod
@@ -111,6 +111,8 @@ public class QueueLessApplication {
                     return;
                 }
             }
+
+            java.util.Objects.requireNonNull(shopService, "shopService must not be null. Fallback persistence paths are strictly prohibited.");
 
             String rawPhone = "9876543210";
             String normalizedPhone = phoneNormalizationService.normalize(rawPhone);
@@ -145,7 +147,7 @@ public class QueueLessApplication {
                             "Salon & Spa",
                             15
                     );
-                    demoShop = shopRepo.save(demoShop);
+                    demoShop = shopService.saveShopWithUniqueCodeRetry(demoShop);
 
                     LocalDate today = LocalDate.now();
                     LocalDate expiry = today.plusDays(7);

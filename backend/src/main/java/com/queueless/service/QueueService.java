@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +26,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -118,7 +120,7 @@ public class QueueService {
     @Transactional
     public ShopActiveQueue getOrInitializeQueue(Long shopId) {
         Shop shop = shopRepository.findById(shopId)
-                .orElseThrow(() -> new IllegalArgumentException("Shop not found with ID: " + shopId));
+                .orElseThrow(() -> new IllegalArgumentException("Shop not found"));
 
         ShopActiveQueue existingMemoryQueue = activeQueueManager.getShopQueue(shopId);
         if (existingMemoryQueue != null && existingMemoryQueue.getSessionId() != null) {
@@ -257,11 +259,11 @@ public class QueueService {
 
     /**
      * Customer joins queue through QR code scan.
+     * Supports permanent merchant QR codes by resolving historical session IDs to the current active session.
      */
     @Transactional
     public CustomerJoinResponse customerJoinQueue(String publicQueueId, CustomerJoinRequest request) {
-        QueueSession session = sessionRepository.findByPublicQueueId(publicQueueId)
-                .orElseThrow(() -> new IllegalArgumentException("Invalid Queue QR code or link."));
+        QueueSession session = resolveActiveOrReferencedSession(publicQueueId);
 
         if (session.getStatus() != QueueSessionStatus.OPEN) {
             throw new IllegalStateException("Queue is currently closed. Please check back later or ask the shop owner.");
@@ -455,8 +457,8 @@ public class QueueService {
      */
     @Transactional
     public QueueDashboardResponse updateCustomerStatus(Long shopId, Long customerId, CustomerQueueStatus newStatus) {
-        QueueCustomer customer = customerRepository.findById(customerId)
-                .orElseThrow(() -> new IllegalArgumentException("Customer not found with ID: " + customerId));
+        QueueCustomer customer = customerRepository.findByIdAndShopId(customerId, shopId)
+                .orElseThrow(() -> new AccessDeniedException("Customer not found or does not belong to authorized shop."));
 
         customer.setStatus(newStatus);
         LocalDateTime now = LocalDateTime.now(this.clock);
@@ -515,8 +517,8 @@ public class QueueService {
      */
     @Transactional
     public QueueDashboardResponse editCustomer(Long shopId, Long customerId, CustomerEditRequest request) {
-        QueueCustomer customer = customerRepository.findById(customerId)
-                .orElseThrow(() -> new IllegalArgumentException("Customer not found"));
+        QueueCustomer customer = customerRepository.findByIdAndShopId(customerId, shopId)
+                .orElseThrow(() -> new AccessDeniedException("Customer not found or does not belong to authorized shop."));
 
         customer.setCustomerName(request.getCustomerName().trim());
         customer.setCustomerPhone(request.getCustomerPhone() != null ? request.getCustomerPhone().trim() : null);
@@ -665,11 +667,11 @@ public class QueueService {
 
     /**
      * Fetches public queue overview info for the customer join page.
+     * Supports permanent merchant QR codes by resolving historical session IDs to the current active session.
      */
     @Transactional(readOnly = true)
     public PublicQueueInfoResponse getPublicQueueInfo(String publicQueueId) {
-        QueueSession session = sessionRepository.findByPublicQueueId(publicQueueId)
-                .orElseThrow(() -> new IllegalArgumentException("Invalid Queue QR code or link."));
+        QueueSession session = resolveActiveOrReferencedSession(publicQueueId);
         Shop shop = session.getShop();
         ShopActiveQueue activeQueue = getOrInitializeQueue(shop.getId());
         List<QueueCustomerSummary> servingList = activeQueue.getCurrentlyServingCustomers();
@@ -689,12 +691,55 @@ public class QueueService {
     }
 
     /**
+     * Canonical Permanent Merchant URL: Previews queue info directly by permanent shop ID.
+     */
+    @Transactional(readOnly = true)
+    public PublicQueueInfoResponse getCanonicalShopQueueInfo(String merchantCode) {
+        if (merchantCode == null || merchantCode.isBlank()) {
+            throw new IllegalArgumentException("Shop not found");
+        }
+        Shop shop = shopRepository.findByPublicMerchantCode(merchantCode.trim())
+                .orElseThrow(() -> new IllegalArgumentException("Shop not found"));
+        Long shopId = shop.getId();
+        QueueSession currentOpen = sessionRepository
+                .findTopByShopIdAndStatusOrderByStartedAtDesc(shopId, QueueSessionStatus.OPEN)
+                .orElse(null);
+        ShopActiveQueue activeQueue = getOrInitializeQueue(shopId);
+        List<QueueCustomerSummary> servingList = activeQueue.getCurrentlyServingCustomers();
+        String servingToken = servingList.isEmpty() ? "-" :
+                servingList.stream().map(QueueCustomerSummary::getTokenNumber).collect(Collectors.joining(", "));
+        return new PublicQueueInfoResponse(
+                shop.getName(),
+                shop.getCategory(),
+                currentOpen != null && activeQueue.isOpen(),
+                activeQueue.getWaitingCount(),
+                servingToken
+        );
+    }
+
+    /**
+     * Canonical Permanent Merchant URL: Customer joins queue directly by permanent opaque merchant code.
+     */
+    @Transactional
+    public CustomerJoinResponse canonicalShopJoinQueue(String merchantCode, CustomerJoinRequest request) {
+        if (merchantCode == null || merchantCode.isBlank()) {
+            throw new IllegalArgumentException("Shop not found");
+        }
+        Shop shop = shopRepository.findByPublicMerchantCode(merchantCode.trim())
+                .orElseThrow(() -> new IllegalArgumentException("Shop not found"));
+        QueueSession session = sessionRepository
+                .findTopByShopIdAndStatusOrderByStartedAtDesc(shop.getId(), QueueSessionStatus.OPEN)
+                .orElseThrow(() -> new IllegalStateException("Queue is currently closed. Please check back later or ask the shop owner."));
+        return customerJoinQueue(session.getPublicQueueId(), request);
+    }
+
+    /**
      * Generates complete Owner Dashboard view.
      */
     @Transactional(readOnly = true)
     public QueueDashboardResponse getDashboard(Long shopId) {
         Shop shop = shopRepository.findById(shopId)
-                .orElseThrow(() -> new IllegalArgumentException("Shop not found with ID: " + shopId));
+                .orElseThrow(() -> new IllegalArgumentException("Shop not found"));
 
         ShopActiveQueue activeQueue = getOrInitializeQueue(shopId);
 
@@ -702,11 +747,14 @@ public class QueueService {
         response.setShopId(shop.getId());
         response.setShopName(shop.getName());
         response.setCategory(shop.getCategory());
+        response.setBusinessType(shop.getBusinessType());
         response.setAvgServiceDurationMinutes(shop.getAvgServiceDurationMinutes());
 
         response.setSessionId(activeQueue.getSessionId());
         response.setPublicQueueId(activeQueue.getPublicQueueId());
         response.setPublicJoinUrl(activeQueue.getPublicQueueId() != null ? "/join/" + activeQueue.getPublicQueueId() : null);
+        response.setCanonicalJoinUrl("/join/shop/" + shop.getPublicMerchantCode());
+        response.setPublicMerchantCode(shop.getPublicMerchantCode());
         response.setQueueOpen(activeQueue.isOpen());
 
         response.setTotalCustomers(activeQueue.getTotalCount());
@@ -827,5 +875,52 @@ public class QueueService {
             sb.append(ALPHANUM.charAt(RANDOM.nextInt(ALPHANUM.length())));
         }
         return sb.toString();
+    }
+
+    /**
+     * Resolves incoming QR identifier to the corresponding QueueSession.
+     * Guarantees permanent merchant QR code longevity:
+     * 1. Physical printed QR codes with historical publicQueueId route to current active queue.
+     * 2. Opaque publicMerchantCode identifiers route directly to current active queue.
+     * 3. Probing non-existent or sequential numeric IDs fails closed immediately.
+     */
+    private QueueSession resolveActiveOrReferencedSession(String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            throw new IllegalArgumentException("Invalid Queue QR code or link.");
+        }
+        String cleanId = identifier.trim();
+
+        // 1. Try finding by historical or active session publicQueueId
+        Optional<QueueSession> exactSession = sessionRepository.findByPublicQueueId(cleanId);
+        if (exactSession.isPresent()) {
+            QueueSession session = exactSession.get();
+            if (session.getStatus() != QueueSessionStatus.OPEN) {
+                QueueSession currentOpen = sessionRepository
+                        .findTopByShopIdAndStatusOrderByStartedAtDesc(session.getShop().getId(), QueueSessionStatus.OPEN)
+                        .orElse(null);
+                if (currentOpen != null) {
+                    return currentOpen;
+                }
+            }
+            return session;
+        }
+
+        // 2. Try resolving by opaque publicMerchantCode
+        Optional<Shop> shopOpt = shopRepository.findByPublicMerchantCode(cleanId);
+        if (shopOpt.isPresent()) {
+            Shop shop = shopOpt.get();
+            QueueSession currentOpen = sessionRepository
+                    .findTopByShopIdAndStatusOrderByStartedAtDesc(shop.getId(), QueueSessionStatus.OPEN)
+                    .orElse(null);
+            if (currentOpen != null) {
+                return currentOpen;
+            }
+            Optional<QueueSession> latestSession = sessionRepository.findTopByShopIdOrderByStartedAtDesc(shop.getId());
+            if (latestSession.isPresent()) {
+                return latestSession.get();
+            }
+        }
+
+        throw new IllegalArgumentException("Invalid Queue QR code or link.");
     }
 }

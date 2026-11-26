@@ -1,0 +1,10 @@
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I", "UP", "W", "PIE", "SIM"]
+ignore = ["E501", "SIM105"]
+
+[lint.per-file-ignores]
+"deploy/tests/*" = ["E402", "SIM115"]
+"scripts/*" = ["E402", "SIM115"]

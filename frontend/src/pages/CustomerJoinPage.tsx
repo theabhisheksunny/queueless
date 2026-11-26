@@ -6,7 +6,9 @@ import { QrCode, User, Phone, ArrowRight, AlertCircle, Globe, Clock, Users } fro
 import { getTheme } from '../theme/theme';
 
 export const CustomerJoinPage: React.FC = () => {
-  const { publicQueueId } = useParams<{ publicQueueId: string }>();
+  const { publicQueueId, merchantCode } = useParams<{ publicQueueId?: string; merchantCode?: string }>();
+  const identifier = merchantCode || publicQueueId;
+  const isMerchantRoute = Boolean(merchantCode);
   const navigate = useNavigate();
   const { language, toggleLanguage, t } = useLanguage();
 
@@ -17,20 +19,24 @@ export const CustomerJoinPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!publicQueueId) return;
-    api.getPublicQueueInfo(publicQueueId)
+    if (!identifier) return;
+    const fetchPromise = isMerchantRoute
+      ? api.getCanonicalShopQueueInfo(identifier)
+      : api.getPublicQueueInfo(identifier);
+
+    fetchPromise
       .then((data) => setQueueInfo(data))
       .catch(() => {
         // Fallback gracefully without blocking join form
       });
-  }, [publicQueueId]);
+  }, [identifier, isMerchantRoute]);
 
   const theme = getTheme(queueInfo?.category);
   const ThemeIcon = theme.icon;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!publicQueueId) return;
+    if (!identifier) return;
     if (!customerName.trim()) {
       setError(t('customerNameLabel') + ' is required');
       return;
@@ -39,10 +45,15 @@ export const CustomerJoinPage: React.FC = () => {
     setIsSubmitting(true);
     setError(null);
     try {
-      const res = await api.joinQueue(publicQueueId, {
-        customerName: customerName.trim(),
-        customerPhone: customerPhone.trim() || undefined,
-      });
+      const res = isMerchantRoute
+        ? await api.canonicalShopJoinQueue(identifier, {
+            customerName: customerName.trim(),
+            customerPhone: customerPhone.trim() || undefined,
+          })
+        : await api.joinQueue(identifier, {
+            customerName: customerName.trim(),
+            customerPhone: customerPhone.trim() || undefined,
+          });
 
       // Save token info to local storage so user can recover if refreshed
       localStorage.setItem('queueless_customer_token', res.trackingToken);

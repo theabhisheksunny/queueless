@@ -32,8 +32,12 @@ public class User {
     @JoinColumn(name = "owner_id")
     private User owner;
 
+    public static final String STATUS_ACTIVE = "ACTIVE";
+    public static final String STATUS_REVOKED = "REVOKED";
+    public static final String STATUS_PENDING_REGISTRATION = "PENDING_REGISTRATION";
+
     @Column(nullable = false, length = 20)
-    private String status = "ACTIVE"; // ACTIVE, REVOKED
+    private String status = STATUS_ACTIVE; // ACTIVE, REVOKED, PENDING_REGISTRATION
 
     @Column(name = "active_session_id", length = 64)
     private String activeSessionId;
@@ -207,7 +211,11 @@ public class User {
     }
 
     public boolean isRevoked() {
-        return "REVOKED".equalsIgnoreCase(this.status);
+        return STATUS_REVOKED.equalsIgnoreCase(this.status);
+    }
+
+    public boolean isPendingRegistration() {
+        return STATUS_PENDING_REGISTRATION.equalsIgnoreCase(this.status);
     }
 
     public String getActiveSessionId() {

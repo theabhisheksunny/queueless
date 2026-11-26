@@ -17,6 +17,7 @@ import java.util.Optional;
 public interface QueueSessionRepository extends JpaRepository<QueueSession, Long> {
     Optional<QueueSession> findByPublicQueueId(String publicQueueId);
     Optional<QueueSession> findTopByShopIdAndStatusOrderByStartedAtDesc(Long shopId, QueueSessionStatus status);
+    Optional<QueueSession> findTopByShopIdOrderByStartedAtDesc(Long shopId);
     Optional<QueueSession> findTopByShopIdAndSessionDateOrderByStartedAtDesc(Long shopId, LocalDate sessionDate);
     List<QueueSession> findByShopIdOrderBySessionDateDesc(Long shopId);
     List<QueueSession> findAllByShopIdInAndStatus(java.util.Collection<Long> shopIds, QueueSessionStatus status);

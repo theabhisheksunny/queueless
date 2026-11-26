@@ -14,5 +14,8 @@ public class TestRegistrationHelper {
             request.setPin("123456");
             request.setConfirmPin("123456");
         }
+        if (request.getBusinessType() == null || request.getBusinessType().isBlank()) {
+            request.setBusinessType("General Store");
+        }
     }
 }

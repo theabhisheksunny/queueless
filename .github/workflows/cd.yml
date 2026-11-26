@@ -13,7 +13,7 @@ on:
           - 'staging_and_production'
 
 concurrency:
-  group: cd-deployment-master
+  group: deploy-${{ inputs.target_env || 'staging_only' }}
   cancel-in-progress: false # Never interrupt an active cloud deployment
 
 permissions:
@@ -44,6 +44,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Validate Centralized Deployment Configurations
+        run: |
+          python deploy/scripts/validate_config.py --all
 
       - name: Verify Strict Production Policies
         run: |
@@ -259,6 +263,16 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Resolve Staging Target
+        id: resolve_staging
+        run: |
+          python deploy/scripts/resolve_deployment_target.py deploy/config/staging.yaml --github-output "$GITHUB_OUTPUT"
+
       - name: Download Frontend Build Artifact
         uses: actions/download-artifact@v4
         with:
@@ -269,7 +283,25 @@ jobs:
         run: |
           test -f frontend/dist/index.html || { echo "ERROR: frontend/dist/index.html missing!"; exit 1; }
 
-      - name: Verify Dedicated Staging Deployer Configuration
+      # --- BACKEND DEPLOYMENT STAGE ---
+      - name: Deploy Backend to Render Staging (If Active Provider)
+        if: steps.resolve_staging.outputs.ACTIVE_PROVIDER == 'render'
+        env:
+          RENDER_HOOK: ${{ secrets.RENDER_STAGING_DEPLOY_HOOK_URL || secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_HOOK" ]; then
+            echo "FATAL: RENDER_STAGING_DEPLOY_HOOK_URL is not configured in secrets."
+            exit 1
+          fi
+          echo "Triggering Render Staging Webhook via Centralized Provider Adapter..."
+          python deploy/scripts/provider_adapters.py \
+            --provider render \
+            --config deploy/config/staging.yaml \
+            --action deploy \
+            --hook-url "$RENDER_HOOK"
+
+      - name: Verify Dedicated GCP Staging Deployer Configuration (If Cloud Run Active)
+        if: steps.resolve_staging.outputs.ACTIVE_PROVIDER == 'cloud_run'
         run: |
           if [ -z "${{ secrets.GCP_STAGING_DEPLOYER_SA }}" ]; then
             echo "FATAL: Missing required secret 'GCP_STAGING_DEPLOYER_SA'! Shared service account fallback has been strictly eliminated for least-privilege security."
@@ -281,32 +313,52 @@ jobs:
             exit 1
           fi
 
-      - name: Authenticate to Google Cloud via Workload Identity Federation
+      - name: Authenticate to Google Cloud via Workload Identity Federation (If Cloud Run Active)
+        if: steps.resolve_staging.outputs.ACTIVE_PROVIDER == 'cloud_run'
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_STAGING_DEPLOYER_SA }}
           access_token_lifetime: '600s'
 
-      - name: Deploy Backend to Cloud Run Staging
+      - name: Deploy Backend to Cloud Run Staging (If Active Provider)
+        if: steps.resolve_staging.outputs.ACTIVE_PROVIDER == 'cloud_run'
         run: |
-          gcloud run deploy queueless-backend-staging \
-            --image="${{ needs.build-and-push-artifacts.outputs.staging_image_uri }}" \
-            --region=asia-south1 \
-            --platform=managed \
-            --service-account="queueless-staging-sa@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
-            --min-instances=0 \
-            --max-instances=1 \
-            --cpu=1 \
-            --memory=1Gi \
-            --set-env-vars="SPRING_PROFILES_ACTIVE=staging,APP_DATASOURCE_EXPECTED_ENV_TYPE=STAGING,APP_DATASOURCE_EXPECTED_PROJECT_REF=${{ vars.QUEUELESS_STAGING_SUPABASE_PROJECT_REF || secrets.QUEUELESS_STAGING_SUPABASE_PROJECT_REF }}" \
-            --set-secrets="SPRING_DATASOURCE_URL=QUEUELESS_STAGING_DB_URL:latest,APP_JWT_SECRET=QUEUELESS_STAGING_JWT_SECRET:latest,APP_ADMIN_KEY=QUEUELESS_STAGING_ADMIN_KEY:latest,APP_SUPERADMIN_PASSWORD=QUEUELESS_STAGING_SUPERADMIN_PASS:latest,SPRING_FLYWAY_USER=QUEUELESS_STAGING_MIGRATOR_USER:latest,SPRING_FLYWAY_PASSWORD=QUEUELESS_STAGING_MIGRATOR_PASS:latest"
+          python deploy/scripts/provider_adapters.py \
+            --provider cloud_run \
+            --config deploy/config/staging.yaml \
+            --action deploy \
+            --image-uri "${{ needs.build-and-push-artifacts.outputs.staging_image_uri }}" \
+            --service-account "queueless-staging-sa@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --env-vars "SPRING_PROFILES_ACTIVE=staging,APP_DATASOURCE_EXPECTED_ENV_TYPE=STAGING,APP_DATASOURCE_EXPECTED_PROJECT_REF=${{ vars.QUEUELESS_STAGING_SUPABASE_PROJECT_REF || secrets.QUEUELESS_STAGING_SUPABASE_PROJECT_REF }}" \
+            --secrets "SPRING_DATASOURCE_URL=QUEUELESS_STAGING_DB_URL:latest,APP_JWT_SECRET=QUEUELESS_STAGING_JWT_SECRET:latest,APP_ADMIN_KEY=QUEUELESS_STAGING_ADMIN_KEY:latest,APP_SUPERADMIN_PASSWORD=QUEUELESS_STAGING_SUPERADMIN_PASS:latest,SPRING_FLYWAY_USER=QUEUELESS_STAGING_MIGRATOR_USER:latest,SPRING_FLYWAY_PASSWORD=QUEUELESS_STAGING_MIGRATOR_PASS:latest"
 
-      - name: Deploy Frontend to Cloudflare Workers Staging
+      # --- DIRECT BACKEND HEALTH VERIFICATION STAGE ---
+      - name: Pre-Traffic Direct Backend Health Verification Gate
+        run: |
+          echo "Waiting for backend startup and health readiness..."
+          python deploy/scripts/verify_backend_health.py \
+            --url "${{ steps.resolve_staging.outputs.BACKEND_HEALTH_URL }}" \
+            --timeout "${{ steps.resolve_staging.outputs.BACKEND_HEALTH_TIMEOUT_SECONDS }}"
+
+      # --- FRONTEND STATIC ASSET DEPLOYMENT STAGE ---
+      - name: Deploy Frontend Static Assets to Cloudflare Workers Staging
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: deploy --env staging --no-build
+          command: deploy --env staging --keep-vars
+
+      # --- EDGE TRAFFIC SWITCHING STAGE ---
+      - name: Switch Staging Edge Traffic & Verify Route
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          python deploy/scripts/switch_edge_traffic.py \
+            --env staging \
+            --worker-name "${{ steps.resolve_staging.outputs.EDGE_WORKER_NAME }}" \
+            --new-backend-url "${{ steps.resolve_staging.outputs.BACKEND_URL }}" \
+            --backend-health-url "${{ steps.resolve_staging.outputs.BACKEND_HEALTH_URL }}" \
+            --edge-public-url "${{ steps.resolve_staging.outputs.EDGE_PUBLIC_URL }}"
 
   # ===================================================================
   # Stage 4: Automated Post-Deployment Staging Smoke Tests
@@ -402,10 +454,10 @@ jobs:
             --expected-digest "${{ needs.build-and-push-artifacts.outputs.image_digest }}"
 
   # ===================================================================
-  # Stage 6: Production Deployment — MANUAL APPROVAL ONLY
+  # Stage 6: Production Backend Deployment
   # ===================================================================
   deploy-production:
-    name: Deploy to Production (Manual Approval Gate)
+    name: Deploy to Production
     runs-on: ubuntu-latest
     needs: [promote-image, build-and-push-artifacts]
     if: inputs.target_env == 'staging_and_production' && inputs.target_env != 'staging_only'
@@ -416,9 +468,25 @@ jobs:
       contents: read
       id-token: write
     timeout-minutes: 20
+    outputs:
+      backend_url: ${{ steps.resolve_prod.outputs.BACKEND_URL }}
+      backend_health_url: ${{ steps.resolve_prod.outputs.BACKEND_HEALTH_URL }}
+      backend_health_timeout: ${{ steps.resolve_prod.outputs.BACKEND_HEALTH_TIMEOUT_SECONDS }}
+      edge_worker_name: ${{ steps.resolve_prod.outputs.EDGE_WORKER_NAME }}
+      edge_public_url: ${{ steps.resolve_prod.outputs.EDGE_PUBLIC_URL }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Resolve Production Target
+        id: resolve_prod
+        run: |
+          python deploy/scripts/resolve_deployment_target.py deploy/config/production.yaml --github-output "$GITHUB_OUTPUT"
 
       - name: Download Frontend Build Artifact
         uses: actions/download-artifact@v4
@@ -430,7 +498,25 @@ jobs:
         run: |
           test -f frontend/dist/index.html || { echo "ERROR: frontend/dist/index.html missing!"; exit 1; }
 
-      - name: Verify Dedicated Production Deployer Configuration
+      # --- BACKEND DEPLOYMENT STAGE ---
+      - name: Deploy Backend to Render Production (If Active Provider)
+        if: steps.resolve_prod.outputs.ACTIVE_PROVIDER == 'render'
+        env:
+          RENDER_HOOK: ${{ secrets.RENDER_PROD_DEPLOY_HOOK_URL || secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_HOOK" ]; then
+            echo "FATAL: RENDER_PROD_DEPLOY_HOOK_URL is not configured in secrets."
+            exit 1
+          fi
+          echo "Triggering Render Production Webhook via Centralized Provider Adapter..."
+          python deploy/scripts/provider_adapters.py \
+            --provider render \
+            --config deploy/config/production.yaml \
+            --action deploy \
+            --hook-url "$RENDER_HOOK"
+
+      - name: Verify Dedicated Production Deployer Configuration (If Cloud Run Active)
+        if: steps.resolve_prod.outputs.ACTIVE_PROVIDER == 'cloud_run'
         run: |
           if [ -z "${{ secrets.GCP_PROD_DEPLOYER_SA }}" ]; then
             echo "FATAL: Missing required secret 'GCP_PROD_DEPLOYER_SA'! Shared service account fallback has been strictly eliminated for least-privilege security."
@@ -443,37 +529,74 @@ jobs:
           fi
 
       - name: Authenticate to Google Cloud via Workload Identity Federation (Prod Deployer SA)
+        if: steps.resolve_prod.outputs.ACTIVE_PROVIDER == 'cloud_run'
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_PROD_DEPLOYER_SA }}
           access_token_lifetime: '600s'
 
-      - name: Deploy Promoted Immutable Image to Cloud Run Production
+      - name: Deploy Promoted Immutable Image to Cloud Run Production (If Active Provider)
+        if: steps.resolve_prod.outputs.ACTIVE_PROVIDER == 'cloud_run'
         run: |
-          gcloud run deploy queueless-backend \
-            --image="${{ needs.promote-image.outputs.promoted_image_uri }}" \
-            --region=asia-south1 \
-            --platform=managed \
-            --service-account="queueless-prod-sa@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
-            --min-instances=0 \
-            --max-instances=1 \
-            --cpu=1 \
-            --memory=1Gi \
-            --set-env-vars="SPRING_PROFILES_ACTIVE=prod,APP_DATASOURCE_EXPECTED_ENV_TYPE=PRODUCTION,APP_DATASOURCE_EXPECTED_PROJECT_REF=${{ vars.QUEUELESS_PROD_SUPABASE_PROJECT_REF || secrets.QUEUELESS_PROD_SUPABASE_PROJECT_REF }}" \
-            --set-secrets="SPRING_DATASOURCE_URL=QUEUELESS_PROD_DB_URL:latest,APP_JWT_SECRET=QUEUELESS_PROD_JWT_SECRET:latest,APP_ADMIN_KEY=QUEUELESS_PROD_ADMIN_KEY:latest,SPRING_FLYWAY_USER=QUEUELESS_PROD_MIGRATOR_USER:latest,SPRING_FLYWAY_PASSWORD=QUEUELESS_PROD_MIGRATOR_PASS:latest"
+          python deploy/scripts/provider_adapters.py \
+            --provider cloud_run \
+            --config deploy/config/production.yaml \
+            --action deploy \
+            --image-uri "${{ needs.promote-image.outputs.promoted_image_uri }}" \
+            --service-account "queueless-prod-sa@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --env-vars "SPRING_PROFILES_ACTIVE=prod,APP_DATASOURCE_EXPECTED_ENV_TYPE=PRODUCTION,APP_DATASOURCE_EXPECTED_PROJECT_REF=${{ vars.QUEUELESS_PROD_SUPABASE_PROJECT_REF || secrets.QUEUELESS_PROD_SUPABASE_PROJECT_REF }}" \
+            --secrets "SPRING_DATASOURCE_URL=QUEUELESS_PROD_DB_URL:latest,APP_JWT_SECRET=QUEUELESS_PROD_JWT_SECRET:latest,APP_ADMIN_KEY=QUEUELESS_PROD_ADMIN_KEY:latest,SPRING_FLYWAY_USER=QUEUELESS_PROD_MIGRATOR_USER:latest,SPRING_FLYWAY_PASSWORD=QUEUELESS_PROD_MIGRATOR_PASS:latest"
 
-      - name: Deploy Frontend to Cloudflare Workers Production
+      # --- DIRECT BACKEND HEALTH VERIFICATION STAGE ---
+      - name: Pre-Traffic Direct Backend Health Verification Gate
+        run: |
+          echo "Waiting for production backend startup and health readiness..."
+          python deploy/scripts/verify_backend_health.py \
+            --url "${{ steps.resolve_prod.outputs.BACKEND_HEALTH_URL }}" \
+            --timeout "${{ steps.resolve_prod.outputs.BACKEND_HEALTH_TIMEOUT_SECONDS }}"
+
+      # --- FRONTEND STATIC ASSET DEPLOYMENT STAGE ---
+      - name: Deploy Frontend Static Assets to Cloudflare Workers Production
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: deploy --no-build
+          command: deploy --keep-vars
 
-      - name: Set up Python for Smoke Testing
+  # ===================================================================
+  # Stage 7: Switch Production Traffic — DEDICATED MANUAL APPROVAL GATE
+  # ===================================================================
+  switch-production-traffic:
+    name: Switch Production Edge Traffic (Approval Gate)
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: inputs.target_env == 'staging_and_production' && inputs.target_env != 'staging_only'
+    environment:
+      name: production-traffic-switch
+      url: https://queueless.theabhisheksunny.workers.dev
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
+      # --- EDGE TRAFFIC SWITCHING STAGE ---
+      - name: Switch Production Edge Traffic & Verify Route
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          python deploy/scripts/switch_edge_traffic.py \
+            --env production \
+            --worker-name "${{ needs.deploy-production.outputs.edge_worker_name }}" \
+            --new-backend-url "${{ needs.deploy-production.outputs.backend_url }}" \
+            --backend-health-url "${{ needs.deploy-production.outputs.backend_health_url }}" \
+            --edge-public-url "${{ needs.deploy-production.outputs.edge_public_url }}" \
+            --confirm-production
+
+      # --- AUTOMATED POST-DEPLOYMENT SMOKE TESTS ---
       - name: Run Automated Post-Deployment Production Smoke Tests
         run: |
-          python scripts/smoke_test.py https://queueless.theabhisheksunny.workers.dev
+          python scripts/smoke_test.py "${{ needs.deploy-production.outputs.edge_public_url }}"

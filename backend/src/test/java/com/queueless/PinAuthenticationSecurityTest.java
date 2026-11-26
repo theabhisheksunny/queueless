@@ -63,6 +63,7 @@ class PinAuthenticationSecurityTest {
         req.setFullName("Ramesh Sharma");
         req.setShopName("Sharma Medicals");
         req.setCategory("Pharmacy");
+        req.setBusinessType("Pharmacy");
         req.setPhone(phone);
         req.setPin("654321");
         req.setConfirmPin("654321");

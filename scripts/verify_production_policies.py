@@ -18,14 +18,18 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+
 class PolicyViolation(Exception):
     pass
+
 
 def log_pass(msg: str):
     print(f"  [PASS] {msg}")
 
+
 def log_fail(msg: str):
     print(f"  [FAIL] {msg}", file=sys.stderr)
+
 
 def check_no_hardcoded_credentials():
     print("[1/10] Verifying no hardcoded credentials in production configurations...")
@@ -36,12 +40,7 @@ def check_no_hardcoded_credentials():
     content = app_props_path.read_text(encoding="utf-8")
 
     # Required secret placeholders that MUST use environment substitution ${VAR:...}
-    secret_keys = [
-        "spring.datasource.password",
-        "app.jwt.secret",
-        "app.admin.key",
-        "app.webpush.vapid.private-key"
-    ]
+    secret_keys = ["spring.datasource.password", "app.jwt.secret", "app.admin.key", "app.webpush.vapid.private-key"]
 
     for key in secret_keys:
         match = re.search(rf"^{re.escape(key)}\s*=\s*(.*)$", content, re.MULTILINE)
@@ -67,7 +66,9 @@ def check_no_hardcoded_credentials():
             raise PolicyViolation("translations.ts contains hardcoded admin secret key in placeholder text")
 
     # Verify AdminController has structured audit logging for PIN resets
-    admin_ctrl = REPO_ROOT / "backend" / "src" / "main" / "java" / "com" / "queueless" / "controller" / "AdminController.java"
+    admin_ctrl = (
+        REPO_ROOT / "backend" / "src" / "main" / "java" / "com" / "queueless" / "controller" / "AdminController.java"
+    )
     if admin_ctrl.exists():
         ctrl_content = admin_ctrl.read_text(encoding="utf-8")
         if "AUDIT: Admin PIN reset SUCCESS" not in ctrl_content:
@@ -76,6 +77,7 @@ def check_no_hardcoded_credentials():
             raise PolicyViolation("AdminController.java lacks structured failure audit logging for PIN resets")
 
     log_pass("All sensitive configuration properties use dynamic environment substitution.")
+
 
 def check_demo_account_isolation():
     print("[2/10] Verifying demo account isolation from production...")
@@ -87,7 +89,9 @@ def check_demo_account_isolation():
 
     # Assert @Profile annotation strictly limits seeding to non-production
     if '@Profile({"dev", "test", "local"})' not in content:
-        raise PolicyViolation("Demo seeding bean in QueueLessApplication.java is not strictly gated with @Profile({'dev', 'test', 'local'})")
+        raise PolicyViolation(
+            "Demo seeding bean in QueueLessApplication.java is not strictly gated with @Profile({'dev', 'test', 'local'})"
+        )
 
     # Assert defensive guard against prod profile
     if '"prod".equalsIgnoreCase(profile)' not in content:
@@ -97,11 +101,11 @@ def check_demo_account_isolation():
     login_page = REPO_ROOT / "frontend" / "src" / "pages" / "LoginPage.tsx"
     if login_page.exists():
         login_content = login_page.read_text(encoding="utf-8")
-        if "demoLoginBtn" in login_content:
-            if "import.meta.env.DEV" not in login_content:
-                raise PolicyViolation("LoginPage.tsx has demo login button not guarded by import.meta.env.DEV")
+        if "demoLoginBtn" in login_content and "import.meta.env.DEV" not in login_content:
+            raise PolicyViolation("LoginPage.tsx has demo login button not guarded by import.meta.env.DEV")
 
     log_pass("Demo accounts and credentials are strictly isolated from production profiles.")
+
 
 def check_no_otp_sms():
     print("[3/10] Verifying complete elimination of OTP and SMS providers...")
@@ -125,11 +129,14 @@ def check_no_otp_sms():
                         raise PolicyViolation(f"Forbidden OTP/SMS residue found in {file}: {desc}")
 
     # Check DB migrations: ensure V2 drops otp_records and no new migration creates it
-    v2_migration = REPO_ROOT / "backend" / "src" / "main" / "resources" / "db" / "migration" / "V2__drop_otp_records.sql"
+    v2_migration = (
+        REPO_ROOT / "backend" / "src" / "main" / "resources" / "db" / "migration" / "V2__drop_otp_records.sql"
+    )
     if not v2_migration.exists():
         raise PolicyViolation("V2__drop_otp_records.sql is missing")
 
     log_pass("Zero OTP/SMS tables, endpoints, or third-party SMS providers exist in production code.")
+
 
 def check_no_mock_provider_in_production():
     print("[4/10] Verifying no mock payment or auth providers in production...")
@@ -143,6 +150,7 @@ def check_no_mock_provider_in_production():
                     raise PolicyViolation(f"Mock provider class found in production source: {file}")
 
     log_pass("No mock providers or test bypasses exist in production codebase.")
+
 
 def check_no_localhost_in_production():
     print("[5/10] Verifying frontend production client does not leak localhost...")
@@ -172,6 +180,7 @@ def check_no_localhost_in_production():
 
     log_pass("Frontend safely uses relative same-origin API routes without leaking localhost.")
 
+
 def check_required_environment_variables():
     print("[6/10] Verifying required runtime configuration declarations...")
     app_props = REPO_ROOT / "backend" / "src" / "main" / "resources" / "application.properties"
@@ -188,9 +197,12 @@ def check_required_environment_variables():
 
     for var in required_vars:
         if f"${{{var}" not in content:
-            raise PolicyViolation(f"Missing required environment variable binding ${{{var}...}} in application.properties")
+            raise PolicyViolation(
+                f"Missing required environment variable binding ${{{var}...}} in application.properties"
+            )
 
     log_pass("All mandatory environment variables are defined with configurable fallbacks.")
+
 
 def check_no_exposed_private_keys():
     print("[7/10] Scanning repository for exposed private keys or tokens...")
@@ -203,7 +215,22 @@ def check_no_exposed_private_keys():
         "ghp_",  # GitHub Personal Access Token prefix
     ]
 
-    scanned_extensions = {".java", ".properties", ".xml", ".ts", ".tsx", ".js", ".json", ".jsonc", ".yml", ".yaml", ".sql", ".sh", ".ps1", ".bat"}
+    scanned_extensions = {
+        ".java",
+        ".properties",
+        ".xml",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".json",
+        ".jsonc",
+        ".yml",
+        ".yaml",
+        ".sql",
+        ".sh",
+        ".ps1",
+        ".bat",
+    }
     ignore_dirs = {".git", "node_modules", "target", "dist", ".wrangler"}
 
     for root, dirs, files in os.walk(REPO_ROOT):
@@ -216,17 +243,21 @@ def check_no_exposed_private_keys():
                     content = file_path.read_text(encoding="utf-8", errors="ignore")
                     for header in forbidden_key_headers:
                         if header in content:
-                            raise PolicyViolation(f"Found potentially exposed secret/private key ({header}) in {file_path.relative_to(REPO_ROOT)}")
+                            raise PolicyViolation(
+                                f"Found potentially exposed secret/private key ({header}) in {file_path.relative_to(REPO_ROOT)}"
+                            )
                 except Exception as e:
                     if isinstance(e, PolicyViolation):
                         raise
-                    pass
 
     log_pass("No exposed private keys or token patterns detected in tracked files.")
 
+
 def check_no_auth_bypass():
     print("[8/10] Verifying zero authentication bypasses in AuthService.java...")
-    auth_service_path = REPO_ROOT / "backend" / "src" / "main" / "java" / "com" / "queueless" / "service" / "AuthService.java"
+    auth_service_path = (
+        REPO_ROOT / "backend" / "src" / "main" / "java" / "com" / "queueless" / "service" / "AuthService.java"
+    )
     if not auth_service_path.exists():
         raise PolicyViolation(f"Missing AuthService.java at {auth_service_path}")
 
@@ -245,6 +276,7 @@ def check_no_auth_bypass():
         raise PolicyViolation("AuthService.java pwdMatches is not strictly evaluated via passwordEncoder.matches")
 
     log_pass("AuthService strictly verifies BCrypt password and PIN hashes with no bypasses.")
+
 
 def check_cicd_security_and_secrets():
     print("[9/10] Verifying CI/CD least-privilege permissions, WIF, and Secret Manager...")
@@ -267,7 +299,9 @@ def check_cicd_security_and_secrets():
 
     # WIF check: Must use workload_identity_provider and service_account, NO static credentials_json
     if "credentials_json" in cd_content:
-        raise PolicyViolation("cd.yml must not use static credentials_json (GCP_SA_KEY). Use Workload Identity Federation!")
+        raise PolicyViolation(
+            "cd.yml must not use static credentials_json (GCP_SA_KEY). Use Workload Identity Federation!"
+        )
     if "workload_identity_provider" not in cd_content or "service_account" not in cd_content:
         raise PolicyViolation("cd.yml must authenticate using workload_identity_provider and service_account")
 
@@ -280,7 +314,9 @@ def check_cicd_security_and_secrets():
     for env_str in env_var_matches:
         for sensitive in ["DB_URL", "JWT_SECRET", "ADMIN_KEY", "PASSWORD"]:
             if sensitive in env_str:
-                raise PolicyViolation(f"cd.yml leaks sensitive variable '{sensitive}' via --set-env-vars instead of --set-secrets")
+                raise PolicyViolation(
+                    f"cd.yml leaks sensitive variable '{sensitive}' via --set-env-vars instead of --set-secrets"
+                )
 
     # Cloudflare Wrangler --no-build check
     if "command: deploy --env staging --no-build" not in cd_content:
@@ -297,13 +333,18 @@ def check_cicd_security_and_secrets():
         raise PolicyViolation("cd.yml deploy-production job must strictly require inputs.target_env != 'staging_only'")
 
     # Single-instance architecture check: Cloud Run deployments must configure --max-instances=1
-    prod_cloud_run_match = re.search(r'gcloud run deploy queueless-backend\s+.*?--max-instances=(\d+)', cd_content, re.DOTALL)
+    prod_cloud_run_match = re.search(
+        r"gcloud run deploy queueless-backend\s+.*?--max-instances=(\d+)", cd_content, re.DOTALL
+    )
     if not prod_cloud_run_match:
         raise PolicyViolation("cd.yml production Cloud Run deploy step missing --max-instances flag")
     if prod_cloud_run_match.group(1) != "1":
-        raise PolicyViolation(f"cd.yml production Cloud Run deploy must set --max-instances=1 (MVP single-instance architecture); found {prod_cloud_run_match.group(1)}")
+        raise PolicyViolation(
+            f"cd.yml production Cloud Run deploy must set --max-instances=1 (MVP single-instance architecture); found {prod_cloud_run_match.group(1)}"
+        )
 
     log_pass("CI/CD workflows enforce least-privilege permissions, WIF, and Secret Manager references.")
+
 
 def check_test_helpers_clean():
     print("[10/10] Verifying test helper cleanliness and absence of deprecated OTP methods...")
@@ -331,6 +372,7 @@ def check_test_helpers_clean():
         raise PolicyViolation("Redundant backend/Dockerfile exists; single root Dockerfile must be used.")
 
     log_pass("All test helpers, test classes, and container definitions are clean of obsolete OTP artifacts.")
+
 
 def main():
     print("=" * 70)
@@ -370,6 +412,7 @@ def main():
         print(f"FAILED: {failed} policy violation(s) detected. Aborting pipeline.", file=sys.stderr)
         print("=" * 70)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

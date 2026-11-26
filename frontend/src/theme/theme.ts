@@ -297,23 +297,27 @@ export function getThemeId(category?: string | null): ThemeId {
   if (!category) return 'default';
   const c = category.trim().toLowerCase();
   if (c === 'barber shop' || c === 'barber') return 'barber';
-  if (c === 'salon & spa' || c === 'salon' || c === 'beauty salon' || c === 'salon / beauty') return 'salon';
+  if (c === 'salon & spa' || c === 'salon' || c === 'beauty salon' || c === 'salon / beauty' || c === 'salon & personal care') return 'salon';
   if (
     c === 'clinic & doctor' ||
     c === 'small hospital' ||
     c === 'clinic' ||
     c === 'hospital' ||
     c === 'clinic / healthcare' ||
-    c === 'doctor'
+    c === 'doctor' ||
+    c === 'healthcare & medical'
   ) {
     return 'clinic';
   }
-  if (c === 'restaurant / cafe' || c === 'restaurant / café' || c === 'restaurant' || c === 'cafe') return 'restaurant';
+  if (c === 'restaurant / cafe' || c === 'restaurant / café' || c === 'restaurant' || c === 'cafe' || c === 'restaurant & food') return 'restaurant';
   if (
     c === 'repair shop' ||
     c === 'automobile service' ||
+    c === 'automobile services' ||
     c === 'retail' ||
     c === 'repair' ||
+    c === 'repair & maintenance' ||
+    c === 'retail & shopping' ||
     c === 'retail / electronics' ||
     c === 'electronics'
   ) {

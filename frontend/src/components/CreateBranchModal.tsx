@@ -10,12 +10,16 @@ interface CreateBranchModalProps {
 }
 
 const CATEGORIES = [
-  'Barber Shop',
-  'Salon / Beauty',
-  'Clinic / Healthcare',
-  'Restaurant / Café',
-  'Retail / Electronics',
-  'General',
+  'Salon & Personal Care',
+  'Healthcare & Medical',
+  'Restaurant & Food',
+  'Retail & Shopping',
+  'Repair & Maintenance',
+  'Automobile Services',
+  'Education & Coaching',
+  'Professional Services',
+  'Home & Local Services',
+  'Other Business',
 ];
 
 const generateBranchIdempotencyKey = (): string => {

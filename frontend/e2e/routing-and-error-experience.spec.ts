@@ -2,6 +2,47 @@ import { test, expect } from '@playwright/test';
 
 test.describe('QueueLess — Global User-Friendly Error Handling, Navigation & Deep Linking E2E', () => {
 
+  const testPhone = '9811000001';
+  const testPin = '123456';
+
+  // Precondition: Ensure test owner 9811000001 is registered before returnUrl restore tests
+  test.beforeAll(async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      await page.goto('/login');
+      // Attempt login first to see if already registered
+      await page.fill('input[type="tel"]', testPhone);
+      await page.fill('input[name="pin"], input[type="password"]', testPin);
+      await page.locator('button[type="submit"]').click();
+
+      // Check if login succeeds
+      try {
+        await page.waitForURL('**/', { timeout: 3000 });
+        await page.evaluate(() => localStorage.clear());
+        await context.close();
+        return;
+      } catch {
+        // Not yet registered or credentials didn't match; proceed to register
+      }
+
+      await page.goto('/login');
+      await page.getByRole('button', { name: /Create Account|साइन अप|खाता बनाएं/i }).click();
+      await page.fill('input[placeholder*="Royal Hair Salon"]', 'Route Guard Master Shop');
+      await page.selectOption('select', 'Barber Shop');
+      await page.fill('input[placeholder*="Ramesh Sharma"]', 'Route Tester');
+      await page.fill('input[placeholder*="9876543210"]', testPhone);
+      await page.fill('input[name="pin"]', testPin);
+      await page.fill('input[name="confirmPin"]', testPin);
+      await page.locator('button[type="submit"]').click();
+      await page.waitForTimeout(2000);
+    } catch {
+      // Account established or already exists
+    } finally {
+      await context.close();
+    }
+  });
+
   test('1 & 2. Session expires on /settings -> preserves returnUrl and restores /settings after login', async ({ page }) => {
     await page.goto('/login');
     await page.evaluate(() => localStorage.clear());
@@ -13,8 +54,8 @@ test.describe('QueueLess — Global User-Friendly Error Handling, Navigation & D
     await expect(page).toHaveURL(/\/login\?redirect=%2Fsettings/);
 
     // Routine login with mobile number + 6-digit PIN
-    await page.fill('input[type="tel"]', '9811000001');
-    await page.fill('input[name="pin"], input[type="password"]', '123456');
+    await page.fill('input[type="tel"]', testPhone);
+    await page.fill('input[name="pin"], input[type="password"]', testPin);
     await page.locator('button[type="submit"]').click();
 
     // After successful PIN login, user MUST be restored to original destination (/settings)
@@ -33,8 +74,8 @@ test.describe('QueueLess — Global User-Friendly Error Handling, Navigation & D
     await expect(page).toHaveURL(/\/login\?redirect=%2Fstaff/);
 
     // Routine login with mobile number + 6-digit PIN
-    await page.fill('input[type="tel"]', '9811000001');
-    await page.fill('input[name="pin"], input[type="password"]', '123456');
+    await page.fill('input[type="tel"]', testPhone);
+    await page.fill('input[name="pin"], input[type="password"]', testPin);
     await page.locator('button[type="submit"]').click();
 
     // Restores /staff
@@ -72,6 +113,7 @@ test.describe('QueueLess — Global User-Friendly Error Handling, Navigation & D
     await ownerPage.fill('input[placeholder="••••••"]', '123456');
     await ownerPage.getByRole('button', { name: /Create Staff User/i }).click();
     await expect(ownerPage.getByText('Staff Operator').first()).toBeVisible();
+    await expect(ownerPage.getByText(/Awaiting Enrollment/i).first()).toBeVisible();
 
     // 3. Staff Context: First-time staff enrollment
     const staffContext = await browser.newContext();
@@ -136,8 +178,8 @@ test.describe('QueueLess — Global User-Friendly Error Handling, Navigation & D
   test('9, 10 & 11. Open redirect protections: external, protocol-relative, and backslash returnUrls are rejected', async ({ page }) => {
     // 9. External URL (https://evil.com)
     await page.goto('/login?redirect=https%3A%2F%2Fevil.com');
-    await page.fill('input[type="tel"]', '9811000001');
-    await page.fill('input[name="pin"], input[type="password"]', '123456');
+    await page.fill('input[type="tel"]', testPhone);
+    await page.fill('input[name="pin"], input[type="password"]', testPin);
     await page.locator('button[type="submit"]').click();
     // Must fall back safely to dashboard '/', NOT evil.com
     await page.waitForURL('**/', { timeout: 10000 });
@@ -147,8 +189,8 @@ test.describe('QueueLess — Global User-Friendly Error Handling, Navigation & D
     await page.goto('/login');
     await page.evaluate(() => localStorage.clear());
     await page.goto('/login?redirect=%2F%2Fevil.com');
-    await page.fill('input[type="tel"]', '9811000001');
-    await page.fill('input[name="pin"], input[type="password"]', '123456');
+    await page.fill('input[type="tel"]', testPhone);
+    await page.fill('input[name="pin"], input[type="password"]', testPin);
     await page.locator('button[type="submit"]').click();
     await page.waitForURL('**/', { timeout: 10000 });
     expect(page.url()).not.toContain('evil.com');
@@ -157,8 +199,8 @@ test.describe('QueueLess — Global User-Friendly Error Handling, Navigation & D
     await page.goto('/login');
     await page.evaluate(() => localStorage.clear());
     await page.goto('/login?redirect=%2F%5Cevil.com');
-    await page.fill('input[type="tel"]', '9811000001');
-    await page.fill('input[name="pin"], input[type="password"]', '123456');
+    await page.fill('input[type="tel"]', testPhone);
+    await page.fill('input[name="pin"], input[type="password"]', testPin);
     await page.locator('button[type="submit"]').click();
     await page.waitForURL('**/', { timeout: 10000 });
     expect(page.url()).not.toContain('evil.com');
@@ -175,8 +217,8 @@ test.describe('QueueLess — Global User-Friendly Error Handling, Navigation & D
   test('20 & 21. Browser refresh on deep link and back/forward navigation preserves route', async ({ page }) => {
     // Log in first
     await page.goto('/login');
-    await page.fill('input[type="tel"]', '9811000001');
-    await page.fill('input[name="pin"], input[type="password"]', '123456');
+    await page.fill('input[type="tel"]', testPhone);
+    await page.fill('input[name="pin"], input[type="password"]', testPin);
     await page.locator('button[type="submit"]').click();
     await page.waitForURL('**/', { timeout: 10000 });
 

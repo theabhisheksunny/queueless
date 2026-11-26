@@ -13,16 +13,20 @@ import argparse
 import concurrent.futures
 import json
 import math
-import os
 import random
 import sys
 import time
 import urllib.error
 import urllib.request
-from typing import Dict, List, Optional, Tuple
 
-def http_request(url: str, method: str = "GET", headers: Optional[Dict[str, str]] = None,
-                 data: Optional[bytes] = None, timeout: float = 15.0) -> Tuple[int, Dict[str, str], str, float]:
+
+def http_request(
+    url: str,
+    method: str = "GET",
+    headers: dict[str, str] | None = None,
+    data: bytes | None = None,
+    timeout: float = 15.0,
+) -> tuple[int, dict[str, str], str, float]:
     start_time = time.perf_counter()
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("User-Agent", "QueueLess-LoadTest/1.0")
@@ -43,14 +47,17 @@ def http_request(url: str, method: str = "GET", headers: Optional[Dict[str, str]
         duration_ms = (time.perf_counter() - start_time) * 1000.0
         return 0, {}, str(ex), duration_ms
 
-def compute_percentiles(latencies: List[float]) -> Dict[str, float]:
+
+def compute_percentiles(latencies: list[float]) -> dict[str, float]:
     if not latencies:
         return {"p50": 0.0, "p90": 0.0, "p95": 0.0, "p99": 0.0, "avg": 0.0, "min": 0.0, "max": 0.0}
     sorted_lat = sorted(latencies)
     n = len(sorted_lat)
+
     def p(pct: float) -> float:
         idx = max(0, min(n - 1, math.ceil((pct / 100.0) * n) - 1))
         return sorted_lat[idx]
+
     return {
         "p50": p(50),
         "p90": p(90),
@@ -58,19 +65,26 @@ def compute_percentiles(latencies: List[float]) -> Dict[str, float]:
         "p99": p(99),
         "avg": sum(sorted_lat) / n,
         "min": sorted_lat[0],
-        "max": sorted_lat[-1]
+        "max": sorted_lat[-1],
     }
 
+
 class LoadTestRunner:
-    def __init__(self, base_url: str, stages: List[int], requests_per_user: int = 5,
-                 ramp_up_sec: float = 2.0, cooldown_sec: float = 3.0):
+    def __init__(
+        self,
+        base_url: str,
+        stages: list[int],
+        requests_per_user: int = 5,
+        ramp_up_sec: float = 2.0,
+        cooldown_sec: float = 3.0,
+    ):
         self.base_url = base_url.rstrip("/")
         self.stages = stages
         self.requests_per_user = requests_per_user
         self.ramp_up_sec = ramp_up_sec
         self.cooldown_sec = cooldown_sec
-        self.public_queue_id: Optional[str] = None
-        self.stage_results: List[Dict] = []
+        self.public_queue_id: str | None = None
+        self.stage_results: list[dict] = []
 
     def verify_target_reachability(self) -> bool:
         print(f"[*] Probing target infrastructure: {self.base_url} ...")
@@ -95,7 +109,9 @@ class LoadTestRunner:
                 data = json.loads(body)
                 if "publicQueueId" in data:
                     self.public_queue_id = data["publicQueueId"]
-                    print(f"  [+] Using active public queue: {self.public_queue_id} (Shop: {data.get('shopName', 'Unknown')})")
+                    print(
+                        f"  [+] Using active public queue: {self.public_queue_id} (Shop: {data.get('shopName', 'Unknown')})"
+                    )
                     return self.public_queue_id
             except Exception:
                 pass
@@ -113,27 +129,27 @@ class LoadTestRunner:
         print(f"  [!] Using target queue ID: {self.public_queue_id}")
         return self.public_queue_id
 
-    def execute_user_flow(self, user_id: int, q_id: str, results_latencies: List[float],
-                          issued_tokens: List[str], error_count: List[str]):
+    def execute_user_flow(
+        self, user_id: int, q_id: str, results_latencies: list[float], issued_tokens: list[str], error_count: list[str]
+    ):
         """Simulates realistic customer journey: Discover Queue -> Join Queue -> Poll Live Tracking."""
         # 1. Discover Queue
         c1, _, b1, d1 = http_request(f"{self.base_url}/api/public/queue/{q_id}")
         results_latencies.append(d1)
-        if c1 != 200 and c1 != 404: # 404 is handled gracefully if queue closed
+        if c1 != 200 and c1 != 404:  # 404 is handled gracefully if queue closed
             error_count.append(f"Discover error HTTP {c1}")
 
         # 2. Join Queue
         customer_phone = f"99{random.randint(10000000, 99999999)}"
-        join_payload = json.dumps({
-            "customerName": f"LoadUser_{user_id}",
-            "customerPhone": customer_phone
-        }).encode("utf-8")
+        join_payload = json.dumps({"customerName": f"LoadUser_{user_id}", "customerPhone": customer_phone}).encode(
+            "utf-8"
+        )
 
         c2, _, b2, d2 = http_request(
             f"{self.base_url}/api/public/queue/{q_id}/join",
             method="POST",
             headers={"Content-Type": "application/json"},
-            data=join_payload
+            data=join_payload,
         )
         results_latencies.append(d2)
 
@@ -160,15 +176,15 @@ class LoadTestRunner:
             if c3 != 200:
                 error_count.append(f"Tracking HTTP {c3}")
 
-    def run_stage(self, stage_concurrency: int) -> Dict:
-        print(f"\n" + "=" * 70)
+    def run_stage(self, stage_concurrency: int) -> dict:
+        print("\n" + "=" * 70)
         print(f">>> STARTING LOAD STAGE: {stage_concurrency} CONCURRENT USERS")
         print("=" * 70)
 
         q_id = self.public_queue_id or "demo"
-        latencies: List[float] = []
-        tokens: List[str] = []
-        errors: List[str] = []
+        latencies: list[float] = []
+        tokens: list[str] = []
+        errors: list[str] = []
 
         total_users = stage_concurrency
         start_wall_time = time.perf_counter()
@@ -203,13 +219,15 @@ class LoadTestRunner:
             "p95_ms": round(stats["p95"], 2),
             "p99_ms": round(stats["p99"], 2),
             "avg_ms": round(stats["avg"], 2),
-            "max_ms": round(stats["max"], 2)
+            "max_ms": round(stats["max"], 2),
         }
 
         self.stage_results.append(stage_summary)
 
         print(f"  [RESULT] Total Requests: {total_requests} in {elapsed_sec:.2f}s ({throughput:.1f} req/s)")
-        print(f"  [LATENCY] p50: {stats['p50']:.1f}ms | p95: {stats['p95']:.1f}ms | p99: {stats['p99']:.1f}ms | Max: {stats['max']:.1f}ms")
+        print(
+            f"  [LATENCY] p50: {stats['p50']:.1f}ms | p95: {stats['p95']:.1f}ms | p99: {stats['p99']:.1f}ms | Max: {stats['max']:.1f}ms"
+        )
         print(f"  [ACCURACY] Errors: {len(errors)} | Duplicate Tokens: {duplicate_tokens}")
 
         if self.cooldown_sec > 0:
@@ -244,11 +262,14 @@ class LoadTestRunner:
         print(header)
         print("-" * len(header))
         for r in self.stage_results:
-            row = (f"{r['concurrency']:<12} | {r['total_requests']:<10} | {r['throughput_rps']:<12.1f} | "
-                   f"{r['p50_ms']:<10.1f} | {r['p95_ms']:<10.1f} | {r['p99_ms']:<10.1f} | "
-                   f"{r['error_count']:<8} | {r['duplicate_tokens']:<10}")
+            row = (
+                f"{r['concurrency']:<12} | {r['total_requests']:<10} | {r['throughput_rps']:<12.1f} | "
+                f"{r['p50_ms']:<10.1f} | {r['p95_ms']:<10.1f} | {r['p99_ms']:<10.1f} | "
+                f"{r['error_count']:<8} | {r['duplicate_tokens']:<10}"
+            )
             print(row)
         print("=" * 90)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="QueueLess Controlled Real Infrastructure Load Test")
@@ -259,10 +280,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     stages = [int(s.strip()) for s in args.stages.split(",") if s.strip()]
-    runner = LoadTestRunner(
-        base_url=args.base_url,
-        stages=stages,
-        ramp_up_sec=args.ramp_up,
-        cooldown_sec=args.cooldown
-    )
+    runner = LoadTestRunner(base_url=args.base_url, stages=stages, ramp_up_sec=args.ramp_up, cooldown_sec=args.cooldown)
     runner.run_all()

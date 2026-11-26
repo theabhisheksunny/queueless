@@ -15,8 +15,9 @@ import argparse
 import json
 import re
 import sys
-import urllib.request
 import urllib.error
+import urllib.request
+
 
 def fetch(url: str, method: str = "GET", headers: dict = None, data: bytes = None, timeout: int = 30, retries: int = 2):
     req = urllib.request.Request(url, data=data, method=method)
@@ -34,9 +35,11 @@ def fetch(url: str, method: str = "GET", headers: dict = None, data: bytes = Non
         except Exception as e:
             if attempt < retries:
                 import time
+
                 time.sleep(2)
                 continue
             return 0, {}, str(e)
+
 
 def run_smoke_tests(base_url: str) -> bool:
     base_url = base_url.rstrip("/")
@@ -98,7 +101,7 @@ def run_smoke_tests(base_url: str) -> bool:
                 print(f"  [PASS] Actuator health returned HTTP 200: {health_body}")
                 passed += 1
         except Exception:
-            print(f"  [PASS] Actuator health returned HTTP 200.")
+            print("  [PASS] Actuator health returned HTTP 200.")
             passed += 1
     elif health_status == 404:
         # Actuator might not be exposed on public Cloudflare route (good for security if blocked by worker)
@@ -115,7 +118,7 @@ def run_smoke_tests(base_url: str) -> bool:
         try:
             data = json.loads(api_body)
             if "publicKey" in data and len(data["publicKey"]) > 20:
-                print(f"  [PASS] Reverse proxy to Spring Boot active. VAPID public key received.")
+                print("  [PASS] Reverse proxy to Spring Boot active. VAPID public key received.")
                 passed += 1
             else:
                 print(f"  [FAIL] Response missing 'publicKey': {api_body}", file=sys.stderr)
@@ -131,10 +134,7 @@ def run_smoke_tests(base_url: str) -> bool:
     print("[6/7] Testing Auth Pipeline & Database Connectivity (/api/auth/login)...")
     login_payload = json.dumps({"phone": "9999999999", "pin": "000000"}).encode("utf-8")
     auth_status, _, auth_body = fetch(
-        f"{base_url}/api/auth/login",
-        method="POST",
-        headers={"Content-Type": "application/json"},
-        data=login_payload
+        f"{base_url}/api/auth/login", method="POST", headers={"Content-Type": "application/json"}, data=login_payload
     )
     # A status of 401 Unauthorized or 400 Bad Request indicates the endpoint handled the payload,
     # queried the database, rejected bad credentials, and returned proper structured error JSON.
@@ -142,7 +142,7 @@ def run_smoke_tests(base_url: str) -> bool:
         print(f"  [PASS] Auth pipeline verified: correctly rejected non-existent credentials (HTTP {auth_status}).")
         passed += 1
     elif auth_status == 200:
-        print(f"  [PASS] Auth endpoint responded HTTP 200.")
+        print("  [PASS] Auth endpoint responded HTTP 200.")
         passed += 1
     else:
         print(f"  [FAIL] Auth endpoint failed unexpectedly (HTTP {auth_status}): {auth_body}", file=sys.stderr)
@@ -155,7 +155,7 @@ def run_smoke_tests(base_url: str) -> bool:
         f"{base_url}/api/public/queue/test-smoke-queue/join",
         method="POST",
         headers={"Content-Type": "application/json"},
-        data=join_payload
+        data=join_payload,
     )
     if join_status in [400, 404, 409]:
         print(f"  [PASS] Public queue endpoint responsive and validated payload correctly (HTTP {join_status}).")
@@ -174,9 +174,15 @@ def run_smoke_tests(base_url: str) -> bool:
         print("=" * 70)
         return False
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="QueueLess Post-Deployment Smoke Test")
-    parser.add_argument("url", nargs="?", default="http://localhost:8080", help="Base URL to test (e.g., https://queueless.theabhisheksunny.workers.dev)")
+    parser.add_argument(
+        "url",
+        nargs="?",
+        default="http://localhost:8080",
+        help="Base URL to test (e.g., https://queueless.theabhisheksunny.workers.dev)",
+    )
     args = parser.parse_args()
 
     success = run_smoke_tests(args.url)

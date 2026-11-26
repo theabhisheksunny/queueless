@@ -1,0 +1,29 @@
+version: "1.0"
+environment: "local"
+description: "QueueLess Local Developer & Test Environment"
+
+spring_profile: "local"
+active_provider: "local"
+
+database:
+  provider: "local_postgres"
+  pooler_port: 5432
+  pooler_type: "direct"
+  ssl_mode: "prefer"
+  datasource_url_secret_key: "SPRING_DATASOURCE_URL"
+
+edge:
+  provider: "local_proxy"
+  worker_name: "queueless-local"
+  public_url: "http://localhost:5173"
+  health_check_path: "/api/public/queue/vapid-public-key"
+  trusted_origins:
+    - "http://localhost:5173"
+    - "http://localhost:8080"
+
+providers:
+  local:
+    service_name: "queueless-local"
+    backend_url: "http://localhost:8080"
+    health_check_path: "/actuator/health"
+    health_timeout_seconds: 30

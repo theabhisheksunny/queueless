@@ -9,11 +9,14 @@ public class QueueDashboardResponse {
     private Long shopId;
     private String shopName;
     private String category;
+    private String businessType;
     private Integer avgServiceDurationMinutes;
 
     private Long sessionId;
     private String publicQueueId;
     private String publicJoinUrl;
+    private String canonicalJoinUrl;
+    private String publicMerchantCode;
     private boolean queueOpen;
 
     private int totalCustomers;
@@ -54,6 +57,14 @@ public class QueueDashboardResponse {
         this.category = category;
     }
 
+    public String getBusinessType() {
+        return businessType;
+    }
+
+    public void setBusinessType(String businessType) {
+        this.businessType = businessType;
+    }
+
     public Integer getAvgServiceDurationMinutes() {
         return avgServiceDurationMinutes;
     }
@@ -84,6 +95,22 @@ public class QueueDashboardResponse {
 
     public void setPublicJoinUrl(String publicJoinUrl) {
         this.publicJoinUrl = publicJoinUrl;
+    }
+
+    public String getCanonicalJoinUrl() {
+        return canonicalJoinUrl;
+    }
+
+    public void setCanonicalJoinUrl(String canonicalJoinUrl) {
+        this.canonicalJoinUrl = canonicalJoinUrl;
+    }
+
+    public String getPublicMerchantCode() {
+        return publicMerchantCode;
+    }
+
+    public void setPublicMerchantCode(String publicMerchantCode) {
+        this.publicMerchantCode = publicMerchantCode;
     }
 
     public boolean isQueueOpen() {

@@ -7,8 +7,8 @@ test.describe('Customer Live Queue Push Notifications (PWA + Web Push)', () => {
   const shopName = `Push Barber ${timestamp % 1000}`;
 
   test('Customer QR journey displays push notification invitation and manages subscription lifecycle', async ({ page, context }) => {
-    // Grant notification permission for http://localhost:8080 in browser context
-    await context.grantPermissions(['notifications'], { origin: 'http://localhost:8080' });
+    // Grant notification permission in browser context
+    await context.grantPermissions(['notifications']);
 
     // Install Web Push & Service Worker mock before any page loads
     await context.addInitScript(() => {

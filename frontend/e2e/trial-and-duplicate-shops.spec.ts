@@ -16,7 +16,6 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page1.getByRole('button', { name: /Create Account|साइन अप/i }).click();
 
     const phone1 = '98' + (timestamp % 100000000).toString().padStart(8, '0');
-    const email1 = `mumbai_owner_${timestamp}@queueless.com`;
 
     await page1.fill('input[placeholder*="Royal Hair Salon"]', sharedShopName);
     await page1.selectOption('select', 'Barber Shop');
@@ -51,7 +50,6 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
     await page2.getByRole('button', { name: /Create Account|साइन अप/i }).click();
 
     const phone2 = '97' + ((timestamp + 1) % 100000000).toString().padStart(8, '0');
-    const email2 = `delhi_owner_${timestamp}@queueless.com`;
 
     await page2.fill('input[placeholder*="Royal Hair Salon"]', sharedShopName);
     await page2.selectOption('select', 'Barber Shop');
@@ -124,7 +122,6 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
   test('3. Account deletion followed by re-registration — Ledger prevents claiming fresh trial', async ({ page }) => {
     const timestamp = Date.now();
     const phone = '95' + (timestamp % 100000000).toString().padStart(8, '0');
-    const email = `deleteme_${timestamp}@queueless.com`;
 
     // 1. Register
     await page.goto('/login');
@@ -163,7 +160,6 @@ test.describe('Duplicate Shop Names & Secure 7-Day Trial Enforcement E2E Tests',
   test('4. PIN reset succeeds without granting fresh trial', async ({ page }) => {
     const timestamp = Date.now();
     const phone = '94' + (timestamp % 100000000).toString().padStart(8, '0');
-    const email = `pwreset_${timestamp}@queueless.com`;
 
     // 1. Register
     await page.goto('/login');

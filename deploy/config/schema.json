@@ -1,0 +1,155 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QueueLessEnvironmentConfiguration",
+  "type": "object",
+  "required": [
+    "version",
+    "environment",
+    "spring_profile",
+    "active_provider",
+    "database",
+    "edge",
+    "providers"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["local", "staging", "production"]
+    },
+    "description": {
+      "type": "string"
+    },
+    "spring_profile": {
+      "type": "string",
+      "enum": ["local", "staging", "prod"]
+    },
+    "active_provider": {
+      "type": "string",
+      "enum": ["local", "render", "cloud_run"]
+    },
+    "database": {
+      "type": "object",
+      "required": ["provider", "pooler_port", "datasource_url_secret_key"],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["local_postgres", "supabase"]
+        },
+        "pooler_port": {
+          "type": "integer",
+          "enum": [5432]
+        },
+        "pooler_type": {
+          "type": "string",
+          "enum": ["direct", "session"]
+        },
+        "ssl_mode": {
+          "type": "string"
+        },
+        "project_ref_var": {
+          "type": "string",
+          "pattern": "^[A-Z0-9_]+$"
+        },
+        "datasource_url_secret_key": {
+          "type": "string",
+          "pattern": "^[A-Z0-9_]+$"
+        },
+        "migrator_user_secret_key": {
+          "type": "string",
+          "pattern": "^[A-Z0-9_]+$"
+        },
+        "migrator_password_secret_key": {
+          "type": "string",
+          "pattern": "^[A-Z0-9_]+$"
+        },
+        "app_password_secret_key": {
+          "type": "string",
+          "pattern": "^[A-Z0-9_]+$"
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": ["provider", "worker_name", "public_url", "health_check_path"],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["local_proxy", "cloudflare_workers"]
+        },
+        "worker_name": {
+          "type": "string"
+        },
+        "public_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "health_check_path": {
+          "type": "string",
+          "pattern": "^/api/"
+        },
+        "trusted_origins": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "providers": {
+      "type": "object",
+      "properties": {
+        "local": {
+          "type": "object",
+          "properties": {
+            "service_name": { "type": "string" },
+            "backend_url": { "type": "string", "format": "uri" },
+            "health_check_path": { "type": "string" },
+            "health_timeout_seconds": { "type": "integer" }
+          }
+        },
+        "render": {
+          "type": "object",
+          "properties": {
+            "service_name": { "type": "string" },
+            "backend_url": { "type": "string", "format": "uri" },
+            "region": { "type": "string" },
+            "plan": { "type": "string" },
+            "deploy_hook_secret_key": { "type": "string", "pattern": "^[A-Z0-9_]+$" },
+            "health_check_path": { "type": "string" },
+            "health_timeout_seconds": { "type": "integer" },
+            "cleanup_on_startup": { "type": "boolean" }
+          }
+        },
+        "cloud_run": {
+          "type": "object",
+          "properties": {
+            "service_name": { "type": "string" },
+            "backend_url": { "type": "string", "format": "uri" },
+            "region": { "type": "string" },
+            "min_instances": { "type": "integer" },
+            "max_instances": { "type": "integer" },
+            "cpu": { "type": "string" },
+            "memory": { "type": "string" },
+            "service_account_secret_key": { "type": "string", "pattern": "^[A-Z0-9_]+$" },
+            "health_check_path": { "type": "string" },
+            "health_timeout_seconds": { "type": "integer" }
+          }
+        },
+        "aws": {
+          "type": "object",
+          "properties": {
+            "service_type": { "type": "string", "enum": ["app_runner", "ecs_fargate"] },
+            "service_name": { "type": "string" },
+            "backend_url": { "type": "string", "format": "uri" },
+            "region": { "type": "string" },
+            "role_arn_secret_key": { "type": "string", "pattern": "^[A-Z0-9_]+$" },
+            "health_check_path": { "type": "string" },
+            "health_timeout_seconds": { "type": "integer" }
+          }
+        }
+      }
+    }
+  }
+}

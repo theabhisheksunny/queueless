@@ -8,6 +8,7 @@ export interface UserState {
   shopId: number;
   shopName: string;
   category: string;
+  businessType?: string;
   subscriptionActive: boolean;
   subscriptionDaysRemaining: number;
   businesses?: BusinessData[];

@@ -7,11 +7,16 @@ import com.queueless.exception.DeviceMismatchException;
 import com.queueless.exception.TrialAlreadyConsumedException;
 import com.queueless.repository.*;
 import com.queueless.security.JwtTokenProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -25,6 +30,8 @@ import java.util.UUID;
 
 @Service
 public class AuthService {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
 
     private final UserRepository userRepository;
     private final ShopRepository shopRepository;
@@ -43,7 +50,9 @@ public class AuthService {
     private final UserSessionRepository userSessionRepository;
     private final PaymentRecordRepository paymentRecordRepository;
     private final BranchService branchService;
+    private final ShopService shopService;
     private final DeviceRegistrationRepository deviceRegistrationRepository;
+    private final PlatformTransactionManager transactionManager;
     private Clock clock;
 
     public AuthService(UserRepository userRepository,
@@ -63,7 +72,9 @@ public class AuthService {
                        UserSessionRepository userSessionRepository,
                        PaymentRecordRepository paymentRecordRepository,
                        BranchService branchService,
+                       ShopService shopService,
                        DeviceRegistrationRepository deviceRegistrationRepository,
+                       PlatformTransactionManager transactionManager,
                        Clock clock) {
         this.userRepository = userRepository;
         this.shopRepository = shopRepository;
@@ -82,7 +93,9 @@ public class AuthService {
         this.userSessionRepository = userSessionRepository;
         this.paymentRecordRepository = paymentRecordRepository;
         this.branchService = branchService;
+        this.shopService = shopService;
         this.deviceRegistrationRepository = deviceRegistrationRepository;
+        this.transactionManager = transactionManager;
         this.clock = clock;
     }
 
@@ -92,7 +105,6 @@ public class AuthService {
         this.tokenProvider.setClock(clock);
     }
 
-    @Transactional
     public AuthResponse register(RegisterRequest request) {
         if (request.getPhone() == null || request.getPhone().isBlank()) {
             throw new IllegalArgumentException("Mobile number is required.");
@@ -103,7 +115,11 @@ public class AuthService {
 
         // Check if an account already exists with this phone number
         if (userRepository.existsByPhone(normalizedPhone)) {
-            throw new IllegalArgumentException("An account with this mobile number already exists. Please log in.");
+            if (reconcileIncompleteAccount(normalizedPhone)) {
+                log.info("Auto-reconciled previously orphaned account for phone {}. Proceeding with fresh registration.", normalizedPhone);
+            } else {
+                throw new IllegalArgumentException("An account with this mobile number already exists. Please log in.");
+            }
         }
 
         // Check persistent trial eligibility ledger (survives account deletion)
@@ -140,99 +156,354 @@ public class AuthService {
         }
 
         if (userRepository.existsByEmail(email)) {
-            throw new IllegalArgumentException("An account with this email already exists.");
+            Optional<User> existingUserOpt = userRepository.findByEmail(email);
+            if (existingUserOpt.isPresent() && isIncompleteRegistration(existingUserOpt.get())) {
+                log.info("Auto-reconciling incomplete account found by email {}.", email);
+                compensateFailedRegistration(existingUserOpt.get().getPhone(), null, null, null, null, null, existingUserOpt.get().getId());
+            } else {
+                throw new IllegalArgumentException("An account with this email already exists.");
+            }
         }
 
-        // Create User with BCrypt hashed credential (never stored plaintext)
-        User user = new User(
-                email,
-                passwordEncoder.encode(credential),
-                request.getFullName() != null ? request.getFullName().trim() : "Shop Owner",
-                normalizedPhone,
-                UserRole.ROLE_OWNER
-        );
-        LocalDateTime nowUtc = LocalDateTime.now(clock);
-        user.setCredentialsUpdatedAt(clock.instant());
-        user.setLastLoginAt(nowUtc);
-        user.setLastDeviceFingerprint(request.getDeviceFingerprint());
-        user.setFailedPinAttempts(0);
-        String sessionId = UUID.randomUUID().toString();
-        user.setActiveSessionId(sessionId);
-        user = userRepository.save(user);
+        // Stage 1: Commit User, UserSession, and Business in an independent preparation transaction
+        TransactionTemplate prepTx = new TransactionTemplate(transactionManager);
+        prepTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        final String finalEmail = email;
+        final String finalCredential = credential;
+        RegistrationPreparation prep = prepTx.execute(status -> {
+            User user = new User(
+                    finalEmail,
+                    passwordEncoder.encode(finalCredential),
+                    request.getFullName() != null ? request.getFullName().trim() : "Shop Owner",
+                    normalizedPhone,
+                    UserRole.ROLE_OWNER
+            );
+            user.setStatus(User.STATUS_PENDING_REGISTRATION);
+            LocalDateTime nowUtc = LocalDateTime.now(clock);
+            user.setCredentialsUpdatedAt(clock.instant());
+            user.setLastLoginAt(nowUtc);
+            user.setLastDeviceFingerprint(request.getDeviceFingerprint());
+            user.setFailedPinAttempts(0);
+            String sessionId = UUID.randomUUID().toString();
+            user.setActiveSessionId(sessionId);
+            user = userRepository.saveAndFlush(user);
 
-        UserSession userSession = new UserSession(user, sessionId, request.getDeviceFingerprint(), null, null);
-        userSessionRepository.save(userSession);
+            UserSession userSession = new UserSession(user, sessionId, request.getDeviceFingerprint(), null, null);
+            userSession = userSessionRepository.saveAndFlush(userSession);
 
-        // Create default Business for owner
-        String businessName = request.getShopName() != null ? request.getShopName().trim() : "My Business";
-        Business business = new Business(user, businessName);
-        business = businessRepository.save(business);
+            String businessName = request.getShopName() != null ? request.getShopName().trim() : "My Business";
+            Business business = new Business(user, businessName);
+            business = businessRepository.saveAndFlush(business);
 
-        // Create primary Shop
-        Shop shop = new Shop(
-                user,
-                request.getShopName() != null ? request.getShopName().trim() : "My Shop",
-                request.getCategory() != null ? request.getCategory().trim() : "General",
-                request.getAvgServiceDurationMinutes() != null ? request.getAvgServiceDurationMinutes() : 15
-        );
-        shop.setBusiness(business);
-        shop.setIsPrimary(true);
-        shop.setRegistrationStatus("REGISTERED");
-        shop.setRegistrationFeePaid(BigDecimal.ZERO);
-        shop = shopRepository.save(shop);
+            return new RegistrationPreparation(user, userSession, business, nowUtc, sessionId);
+        });
 
-        // Grant exactly 7 calendar days trial
-        LocalDate today = LocalDate.now(clock);
-        LocalDate expiryDate = today.plusDays(7);
-        LocalDateTime trialEndsAt = nowUtc.plusDays(7);
+        // Stage 2: Create primary Shop using centralized retry logic
+        Shop shop;
+        try {
+            Shop newShop = new Shop(
+                    prep.user,
+                    request.getShopName() != null ? request.getShopName().trim() : "My Shop",
+                    request.getCategory() != null ? request.getCategory().trim() : "General",
+                    request.getAvgServiceDurationMinutes() != null ? request.getAvgServiceDurationMinutes() : 15
+            );
+            String resolvedBusinessType = (request.getBusinessType() != null && !request.getBusinessType().isBlank())
+                    ? request.getBusinessType().trim()
+                    : (request.getCategory() != null && !request.getCategory().isBlank() ? request.getCategory().trim() : "General Store");
+            newShop.setBusinessType(resolvedBusinessType);
+            newShop.setBusiness(prep.business);
+            newShop.setIsPrimary(true);
+            newShop.setRegistrationStatus("REGISTERED");
+            newShop.setRegistrationFeePaid(BigDecimal.ZERO);
+            shop = shopService.saveShopWithUniqueCodeRetry(newShop);
+        } catch (Exception ex) {
+            log.error("Registration aborted during shop creation. Executing compensating cleanup for user ID {}: {}",
+                    prep.user.getId(), ex.getMessage());
+            compensateFailedRegistration(normalizedPhone, null, null, null, prep.business.getId(), prep.userSession.getId(), prep.user.getId());
+            throw ex;
+        }
 
-        Subscription trial = new Subscription(
-                user,
-                shop,
-                SubscriptionPlan.TRIAL,
-                SubscriptionStatus.ACTIVE,
-                today,
-                expiryDate,
-                BigDecimal.ZERO
-        );
-        trial.setNotes("Complimentary 7-day initial trial");
-        trial.setTrialStartedAt(nowUtc);
-        trial.setTrialEndsAt(trialEndsAt);
-        trial.setTrialConsumedAt(nowUtc);
-        subscriptionRepository.save(trial);
+        // Stage 3: Commit Trial Subscription and Trial Eligibility Ledger in an independent transaction
+        final Shop finalShop = shop;
+        RegistrationPostCreation post;
+        try {
+            TransactionTemplate postTx = new TransactionTemplate(transactionManager);
+            postTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            post = postTx.execute(status -> {
+                LocalDate today = LocalDate.now(clock);
+                LocalDate expiryDate = today.plusDays(7);
+                LocalDateTime trialEndsAt = prep.nowUtc.plusDays(7);
 
-        // Persist durable Trial Eligibility Ledger entry (cannot be erased by account deletion)
-        TrialEligibilityLedger ledger = new TrialEligibilityLedger();
-        ledger.setNormalizedPhone(normalizedPhone);
-        ledger.setPhoneHmac(phoneNormalizationService.computeHmac(normalizedPhone));
-        ledger.setTrialStartedAt(nowUtc);
-        ledger.setTrialEndsAt(trialEndsAt);
-        ledger.setTrialConsumedAt(nowUtc);
-        ledger.setOwnerId(user.getId());
-        ledger.setShopId(shop.getId());
-        ledger.setOwnerEmail(user.getEmail());
-        ledger.setRegistrationStatus("ACTIVE");
-        ledger.setDeviceFingerprint(request.getDeviceFingerprint());
-        trialEligibilityLedgerRepository.save(ledger);
+                Subscription trial = new Subscription(
+                        prep.user,
+                        finalShop,
+                        SubscriptionPlan.TRIAL,
+                        SubscriptionStatus.ACTIVE,
+                        today,
+                        expiryDate,
+                        BigDecimal.ZERO
+                );
+                trial.setNotes("Complimentary 7-day initial trial");
+                trial.setTrialStartedAt(prep.nowUtc);
+                trial.setTrialEndsAt(trialEndsAt);
+                trial.setTrialConsumedAt(prep.nowUtc);
+                trial = subscriptionRepository.saveAndFlush(trial);
 
-        String tokenSubject = user.getPhone() != null ? user.getPhone() : user.getEmail();
-        String token = tokenProvider.generateTokenForUsername(tokenSubject, sessionId);
+                TrialEligibilityLedger ledger = new TrialEligibilityLedger();
+                ledger.setNormalizedPhone(normalizedPhone);
+                ledger.setPhoneHmac(phoneNormalizationService.computeHmac(normalizedPhone));
+                ledger.setTrialStartedAt(prep.nowUtc);
+                ledger.setTrialEndsAt(trialEndsAt);
+                ledger.setTrialConsumedAt(prep.nowUtc);
+                ledger.setOwnerId(prep.user.getId());
+                ledger.setShopId(finalShop.getId());
+                ledger.setOwnerEmail(prep.user.getEmail());
+                ledger.setRegistrationStatus("ACTIVE");
+                ledger.setDeviceFingerprint(request.getDeviceFingerprint());
+                ledger = trialEligibilityLedgerRepository.saveAndFlush(ledger);
 
-        AuthResponse resp = new AuthResponse(
-                token,
-                user.getEmail(),
-                user.getPhone(),
-                user.getFullName(),
-                user.getRole(),
-                shop.getId(),
-                shop.getName(),
-                shop.getCategory(),
-                true,
-                7
-        );
-        resp.setBusinesses(branchService.getBusinessesAndBranches(user.getId()));
-        resp.setBranches(branchService.getAllBranches(user.getId()));
-        return resp;
+                return new RegistrationPostCreation(trial, ledger);
+            });
+        } catch (Exception ex) {
+            log.error("Registration aborted during post-creation. Executing compensating cleanup for shop ID {} and user ID {}: {}",
+                    finalShop.getId(), prep.user.getId(), ex.getMessage());
+            compensateFailedRegistration(normalizedPhone, null, null, finalShop.getId(), prep.business.getId(), prep.userSession.getId(), prep.user.getId());
+            throw ex;
+        }
+
+        // Stage 4: Mark user status durably as ACTIVE once Stage 3 is fully committed
+        try {
+            TransactionTemplate activateTx = new TransactionTemplate(transactionManager);
+            activateTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            activateTx.execute(status -> {
+                userRepository.findById(prep.user.getId()).ifPresent(u -> {
+                    u.setStatus(User.STATUS_ACTIVE);
+                    userRepository.saveAndFlush(u);
+                });
+                return null;
+            });
+        } catch (Exception ex) {
+            log.error("Registration aborted during status activation. Executing compensating cleanup for user ID {}: {}",
+                    prep.user.getId(), ex.getMessage());
+            compensateFailedRegistration(normalizedPhone,
+                    post != null && post.ledger != null ? post.ledger.getId() : null,
+                    post != null && post.trial != null ? post.trial.getId() : null,
+                    finalShop.getId(), prep.business.getId(), prep.userSession.getId(), prep.user.getId());
+            throw ex;
+        }
+
+        try {
+            String tokenSubject = prep.user.getPhone() != null ? prep.user.getPhone() : prep.user.getEmail();
+            String token = tokenProvider.generateTokenForUsername(tokenSubject, prep.sessionId);
+
+            AuthResponse resp = new AuthResponse(
+                    token,
+                    prep.user.getEmail(),
+                    prep.user.getPhone(),
+                    prep.user.getFullName(),
+                    prep.user.getRole(),
+                    shop.getId(),
+                    shop.getName(),
+                    shop.getCategory(),
+                    true,
+                    7
+            );
+            resp.setBusinessType(shop.getBusinessType());
+            resp.setBusinesses(branchService.getBusinessesAndBranches(prep.user.getId()));
+            resp.setBranches(branchService.getAllBranches(prep.user.getId()));
+            return resp;
+        } catch (Exception ex) {
+            log.error("Registration aborted during response token generation. Executing compensating cleanup for user ID {}: {}",
+                    prep.user.getId(), ex.getMessage());
+            compensateFailedRegistration(normalizedPhone,
+                    post != null && post.ledger != null ? post.ledger.getId() : null,
+                    post != null && post.trial != null ? post.trial.getId() : null,
+                    finalShop.getId(), prep.business.getId(), prep.userSession.getId(), prep.user.getId());
+            throw ex;
+        }
+    }
+
+    public boolean isIncompleteRegistration(User user) {
+        if (user == null) return false;
+        if (user.getRole() != UserRole.ROLE_OWNER) return false;
+        if (user.isPendingRegistration()) {
+            return true;
+        }
+        List<Shop> shops = shopRepository.findAllByOwnerIdOrderByCreatedAtAsc(user.getId());
+        if (shops.isEmpty()) {
+            return true;
+        }
+        // An active or suspended owner with shops has completed registration
+        if ("ACTIVE".equalsIgnoreCase(user.getStatus()) || "SUSPENDED".equalsIgnoreCase(user.getStatus())) {
+            return false;
+        }
+        // Failure scenario: User and business committed, shop committed,
+        // but crashed before trial subscription and eligibility ledger committed
+        boolean hasAnySubscription = shops.stream()
+                .anyMatch(s -> !subscriptionRepository.findByShopIdOrderByCreatedAtDesc(s.getId()).isEmpty());
+        boolean hasLedger = user.getPhone() != null && trialEligibilityLedgerRepository.existsByNormalizedPhone(user.getPhone());
+        return !hasAnySubscription && !hasLedger;
+    }
+
+    @Transactional
+    public boolean reconcileIncompleteAccount(String normalizedPhone) {
+        if (normalizedPhone == null || normalizedPhone.isBlank()) return false;
+        Optional<User> userOpt = userRepository.findByPhone(normalizedPhone);
+        if (userOpt.isEmpty()) return false;
+        User user = userOpt.get();
+        if (isIncompleteRegistration(user)) {
+            log.warn("Reconciling incomplete registration for user ID {}, phone: {}, status: {}",
+                    user.getId(), normalizedPhone, user.getStatus());
+            compensateFailedRegistration(normalizedPhone, null, null, null, null, null, user.getId());
+            return true;
+        }
+        return false;
+    }
+
+    private void compensateFailedRegistration(String normalizedPhone, Long ledgerId, Long subscriptionId, Long shopId, Long businessId, Long userSessionId, Long userId) {
+        try {
+            TransactionTemplate cleanupTx = new TransactionTemplate(transactionManager);
+            cleanupTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            cleanupTx.execute(status -> {
+                if (ledgerId != null) {
+                    try {
+                        trialEligibilityLedgerRepository.deleteById(ledgerId);
+                        trialEligibilityLedgerRepository.flush();
+                    } catch (Exception e) {
+                        log.warn("Compensating cleanup: failed to delete ledger ID {}: {}", ledgerId, e.getMessage());
+                    }
+                } else if (normalizedPhone != null) {
+                    trialEligibilityLedgerRepository.findByNormalizedPhone(normalizedPhone).ifPresent(l -> {
+                        // Strict safety check: only delete if the ledger belongs to this user or owner is null.
+                        // Never delete a concurrent winning user's ledger!
+                        if (l.getOwnerId() == null || (userId != null && userId.equals(l.getOwnerId()))) {
+                            try {
+                                trialEligibilityLedgerRepository.delete(l);
+                                trialEligibilityLedgerRepository.flush();
+                            } catch (Exception e) {
+                                log.warn("Compensating cleanup: failed to delete ledger for phone {}: {}", normalizedPhone, e.getMessage());
+                            }
+                        }
+                    });
+                }
+                if (subscriptionId != null) {
+                    try {
+                        subscriptionRepository.deleteById(subscriptionId);
+                        subscriptionRepository.flush();
+                    } catch (Exception e) {
+                        log.warn("Compensating cleanup: failed to delete subscription ID {}: {}", subscriptionId, e.getMessage());
+                    }
+                } else if (shopId != null) {
+                    try {
+                        subscriptionRepository.findByShopIdOrderByCreatedAtDesc(shopId).forEach(sub -> {
+                            try { subscriptionRepository.delete(sub); subscriptionRepository.flush(); } catch (Exception ignored) {}
+                        });
+                    } catch (Exception e) {
+                        log.warn("Compensating cleanup: failed to delete subscriptions for shop ID {}: {}", shopId, e.getMessage());
+                    }
+                } else if (userId != null) {
+                    try {
+                        List<Shop> userShops = shopRepository.findAllByOwnerIdOrderByCreatedAtAsc(userId);
+                        for (Shop s : userShops) {
+                            subscriptionRepository.findByShopIdOrderByCreatedAtDesc(s.getId()).forEach(sub -> {
+                                try { subscriptionRepository.delete(sub); subscriptionRepository.flush(); } catch (Exception ignored) {}
+                            });
+                        }
+                    } catch (Exception e) {
+                        log.warn("Compensating cleanup: failed to clean subscriptions for user ID {}: {}", userId, e.getMessage());
+                    }
+                }
+                if (shopId != null) {
+                    try {
+                        shopRepository.deleteById(shopId);
+                        shopRepository.flush();
+                    } catch (Exception e) {
+                        log.warn("Compensating cleanup: failed to delete shop ID {}: {}", shopId, e.getMessage());
+                    }
+                } else if (userId != null) {
+                    try {
+                        List<Shop> userShops = shopRepository.findAllByOwnerIdOrderByCreatedAtAsc(userId);
+                        for (Shop s : userShops) {
+                            shopRepository.delete(s);
+                            shopRepository.flush();
+                        }
+                    } catch (Exception e) {
+                        log.warn("Compensating cleanup: failed to delete shops for user ID {}: {}", userId, e.getMessage());
+                    }
+                }
+                if (businessId != null) {
+                    try {
+                        businessRepository.deleteById(businessId);
+                        businessRepository.flush();
+                    } catch (Exception e) {
+                        log.warn("Compensating cleanup: failed to delete business ID {}: {}", businessId, e.getMessage());
+                    }
+                } else if (userId != null) {
+                    try {
+                        businessRepository.findAllByOwnerIdOrderByCreatedAtAsc(userId).forEach(b -> {
+                            try { businessRepository.delete(b); businessRepository.flush(); } catch (Exception ignored) {}
+                        });
+                    } catch (Exception e) {
+                        log.warn("Compensating cleanup: failed to delete businesses for user ID {}: {}", userId, e.getMessage());
+                    }
+                }
+                if (userSessionId != null) {
+                    try {
+                        userSessionRepository.deleteById(userSessionId);
+                        userSessionRepository.flush();
+                    } catch (Exception e) {
+                        log.warn("Compensating cleanup: failed to delete user session ID {}: {}", userSessionId, e.getMessage());
+                    }
+                } else if (userId != null) {
+                    try {
+                        userSessionRepository.deleteAllByUserId(userId);
+                        userSessionRepository.flush();
+                    } catch (Exception e) {
+                        log.warn("Compensating cleanup: failed to delete user sessions for user ID {}: {}", userId, e.getMessage());
+                    }
+                }
+                if (userId != null) {
+                    try {
+                        membershipRepository.deleteAllByUserId(userId);
+                        membershipRepository.flush();
+                        userRepository.deleteById(userId);
+                        userRepository.flush();
+                    } catch (Exception e) {
+                        log.warn("Compensating cleanup: failed to delete user ID {}: {}", userId, e.getMessage());
+                    }
+                }
+                return null;
+            });
+        } catch (Exception ex) {
+            log.error("CRITICAL PERSISTENCE INTEGRITY EVENT: Compensating cleanup encountered failure for user ID {} / phone {}. Manual or automated operator reconciliation required: {}",
+                    userId, normalizedPhone, ex.getMessage(), ex);
+        }
+    }
+
+    private static class RegistrationPreparation {
+        final User user;
+        final UserSession userSession;
+        final Business business;
+        final LocalDateTime nowUtc;
+        final String sessionId;
+
+        RegistrationPreparation(User user, UserSession userSession, Business business, LocalDateTime nowUtc, String sessionId) {
+            this.user = user;
+            this.userSession = userSession;
+            this.business = business;
+            this.nowUtc = nowUtc;
+            this.sessionId = sessionId;
+        }
+    }
+
+    private static class RegistrationPostCreation {
+        final Subscription trial;
+        final TrialEligibilityLedger ledger;
+
+        RegistrationPostCreation(Subscription trial, TrialEligibilityLedger ledger) {
+            this.trial = trial;
+            this.ledger = ledger;
+        }
     }
 
     /**
@@ -271,6 +542,10 @@ public class AuthService {
 
         if (user.isRevoked()) {
             throw new BadCredentialsException("Your account access has been revoked by the owner.");
+        }
+
+        if (user.isPendingRegistration()) {
+            throw new BadCredentialsException("Registration incomplete. Please register again to complete setup.");
         }
 
         if (user.getRole() == UserRole.ROLE_STAFF) {
@@ -375,6 +650,10 @@ public class AuthService {
 
         if (user.isRevoked()) {
             throw new BadCredentialsException("Your account access has been revoked by the owner.");
+        }
+
+        if (user.isPendingRegistration()) {
+            throw new BadCredentialsException("Registration incomplete. Please register again to complete setup.");
         }
 
         if (user.getRole() == UserRole.ROLE_STAFF) {
@@ -570,6 +849,7 @@ public class AuthService {
                 activeSubscription,
                 daysRemaining
         );
+        resp.setBusinessType(shop != null ? shop.getBusinessType() : null);
 
         if (user.getRole() == UserRole.ROLE_OWNER) {
             resp.setBusinesses(branchService.getBusinessesAndBranches(user.getId()));

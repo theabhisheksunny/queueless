@@ -49,7 +49,7 @@ function playNotificationChime() {
 
     osc.start();
     osc.stop(ctx.currentTime + 0.8);
-  } catch (e) {
+  } catch {
     // Audio context may require prior user interaction
   }
 }

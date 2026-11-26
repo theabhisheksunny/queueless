@@ -38,10 +38,13 @@ export interface QueueDashboardData {
   shopId: number;
   shopName: string;
   category: string;
+  businessType?: string;
   avgServiceDurationMinutes: number;
   sessionId?: number;
   publicQueueId?: string;
   publicJoinUrl?: string;
+  canonicalJoinUrl?: string;
+  publicMerchantCode?: string;
   queueOpen: boolean;
   totalCustomers: number;
   waitingCustomers: number;
@@ -158,6 +161,7 @@ export interface BranchData {
   name: string;
   branchName: string;
   category: string;
+  businessType?: string;
   address?: string;
   phone?: string;
   avgServiceDurationMinutes?: number;
@@ -501,7 +505,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       ...options,
       headers,
     });
-  } catch (netErr: any) {
+  } catch {
     // Network failures or offline errors
     const err: any = new Error("Unable to connect to QueueLess. Please check your internet connection and try again.");
     err.status = 0;
@@ -630,8 +634,12 @@ export const api = {
   // Public Customer QR & Push Notifications
   getPublicQueueInfo: (publicQueueId: string) =>
     request<PublicQueueInfoData>(`/api/public/queue/${publicQueueId}/info`),
+  getCanonicalShopQueueInfo: (merchantCode: string) =>
+    request<PublicQueueInfoData>(`/api/public/queue/shop/${merchantCode}/info`),
   joinQueue: (publicQueueId: string, data: { customerName: string; customerPhone?: string }) =>
     request<any>(`/api/public/queue/${publicQueueId}/join`, { method: 'POST', body: JSON.stringify(data) }),
+  canonicalShopJoinQueue: (merchantCode: string, data: { customerName: string; customerPhone?: string }) =>
+    request<any>(`/api/public/queue/shop/${merchantCode}/join`, { method: 'POST', body: JSON.stringify(data) }),
   trackPosition: (trackingToken: string) =>
     request<CustomerPositionData>(`/api/public/queue/track/${trackingToken}`),
   leaveQueue: (trackingToken: string) =>
@@ -851,13 +859,115 @@ export const api = {
     return request<AdminActivityLogData[]>(`/api/admin/activity-logs?${params.toString()}`, { headers });
   },
 
-  // SSE Stream URLs
-  getOwnerSseUrl: (shopId?: number) => {
-    const token = localStorage.getItem('queueless_token');
+  // SSE Stream URLs & Authentication Tickets
+  getOwnerSseTicket: async (shopId?: number): Promise<string> => {
+    const param = shopId ? `?shopId=${shopId}` : '';
+    const res = await request<{ ticket: string; expiresInSeconds: number }>(`/api/queue/sse-ticket${param}`, {
+      method: 'POST',
+    });
+    return res.ticket;
+  },
+  getOwnerSseUrl: (ticket: string, shopId?: number) => {
     const param = shopId ? `&shopId=${shopId}` : '';
-    return `${BASE_URL}/api/queue/stream/owner?token=${encodeURIComponent(token || '')}${param}`;
+    return `${BASE_URL}/api/queue/stream/owner?ticket=${encodeURIComponent(ticket)}${param}`;
   },
   getCustomerSseUrl: (trackingToken: string) => {
     return `${BASE_URL}/api/public/queue/stream/customer/${encodeURIComponent(trackingToken)}`;
+  },
+  /**
+   * Connects to real-time owner queue stream using header-authenticated fetch-based streaming.
+   * Completely eliminates tickets and credentials from the URI query string.
+   * Gracefully falls back to single-use ticket EventSource if fetch-streaming is unavailable.
+   */
+  connectOwnerStream: async (
+    shopId: number | undefined,
+    onMessage: (data: QueueDashboardData) => void,
+    onConnected: () => void,
+    onError: (err: any) => void,
+    abortSignal?: AbortSignal
+  ): Promise<() => void> => {
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('queueless_token') : null;
+    const url = `${BASE_URL}/api/queue/stream/owner`;
+    const controller = new AbortController();
+    const signal = abortSignal || controller.signal;
+
+    let isClosed = false;
+    const cleanup = () => {
+      isClosed = true;
+      controller.abort();
+    };
+
+    if (token && typeof ReadableStream !== 'undefined') {
+      try {
+        const headers: Record<string, string> = {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'text/event-stream',
+        };
+        if (shopId) headers['X-Shop-Id'] = String(shopId);
+
+        const response = await fetch(url, { headers, signal });
+        if (!response.ok || !response.body) {
+          throw new Error(`SSE stream failed with HTTP ${response.status}`);
+        }
+
+        onConnected();
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        (async () => {
+          try {
+            while (!isClosed) {
+              const { value, done } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n\n');
+              buffer = lines.pop() || '';
+              for (const block of lines) {
+                const dataLine = block.split('\n').find((l) => l.startsWith('data:'));
+                if (dataLine) {
+                  try {
+                    const parsed = JSON.parse(dataLine.replace(/^data:\s*/, ''));
+                    onMessage(parsed);
+                  } catch (e) {
+                    console.error('Failed to parse SSE JSON payload', e);
+                  }
+                }
+              }
+            }
+          } catch (err: any) {
+            if (!isClosed && err.name !== 'AbortError') {
+              onError(err);
+            }
+          }
+        })();
+
+        return cleanup;
+      } catch (err: any) {
+        if (err.name === 'AbortError') return cleanup;
+        console.warn('Fetch streaming failed; falling back to single-use ticket EventSource', err);
+      }
+    }
+
+    try {
+      const ticket = await api.getOwnerSseTicket(shopId);
+      if (isClosed) return cleanup;
+      const sseUrl = api.getOwnerSseUrl(ticket, shopId);
+      const es = new EventSource(sseUrl);
+      es.onopen = () => onConnected();
+      es.addEventListener('QUEUE_UPDATED', (e: MessageEvent) => {
+        try {
+          onMessage(JSON.parse(e.data));
+        } catch {}
+      });
+      es.onerror = (e) => onError(e);
+      return () => {
+        isClosed = true;
+        es.close();
+      };
+    } catch (e) {
+      onError(e);
+      return cleanup;
+    }
   },
 };

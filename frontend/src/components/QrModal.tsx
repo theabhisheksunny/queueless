@@ -10,6 +10,8 @@ interface QrModalProps {
   shopName: string;
   category: string;
   publicQueueId: string;
+  publicMerchantCode?: string;
+  canonicalJoinUrl?: string;
 }
 
 export const QrModal: React.FC<QrModalProps> = ({
@@ -18,6 +20,8 @@ export const QrModal: React.FC<QrModalProps> = ({
   shopName,
   category,
   publicQueueId,
+  publicMerchantCode,
+  canonicalJoinUrl,
 }) => {
   const { t } = useLanguage();
   const [copied, setCopied] = useState(false);
@@ -27,7 +31,12 @@ export const QrModal: React.FC<QrModalProps> = ({
 
   if (!isOpen) return null;
 
-  const joinUrl = `${window.location.origin}/join/${publicQueueId}`;
+  // Use opaque permanent QR URL whenever available, falling back to session publicQueueId
+  const joinUrl = canonicalJoinUrl
+    ? `${window.location.origin}${canonicalJoinUrl}`
+    : publicMerchantCode
+    ? `${window.location.origin}/join/shop/${publicMerchantCode}`
+    : `${window.location.origin}/join/${publicQueueId}`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(joinUrl);

@@ -21,14 +21,16 @@ import {
 } from 'lucide-react';
 
 const CATEGORIES = [
-  'Barber Shop',
-  'Salon & Spa',
-  'Clinic & Doctor',
-  'Small Hospital',
-  'Restaurant / Cafe',
-  'Repair Shop',
-  'Automobile Service',
-  'Other Local Business',
+  'Salon & Personal Care',
+  'Healthcare & Medical',
+  'Restaurant & Food',
+  'Retail & Shopping',
+  'Repair & Maintenance',
+  'Automobile Services',
+  'Education & Coaching',
+  'Professional Services',
+  'Home & Local Services',
+  'Other Business',
 ];
 
 export const SettingsPage: React.FC = () => {

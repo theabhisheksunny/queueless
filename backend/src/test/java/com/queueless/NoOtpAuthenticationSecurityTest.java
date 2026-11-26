@@ -62,6 +62,7 @@ class NoOtpAuthenticationSecurityTest {
         req.setFullName("Kavita Patel");
         req.setShopName("Patel General Store");
         req.setCategory("Retail");
+        req.setBusinessType("General Store");
         req.setPhone(phone);
         req.setPin("246810");
         req.setConfirmPin("246810");

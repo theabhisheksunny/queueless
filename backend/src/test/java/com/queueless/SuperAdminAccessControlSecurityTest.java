@@ -280,6 +280,7 @@ public class SuperAdminAccessControlSecurityTest {
         regPayload.put("pin", "654321");
         regPayload.put("confirmPin", "654321");
         regPayload.put("shopName", "Attacker Store");
+        regPayload.put("businessType", "General Store");
         regPayload.put("role", "ROLE_SUPER_ADMIN"); // Injection attempt
         regPayload.put("roleName", "SUPER_ADMIN");   // Alternative injection attempt
 

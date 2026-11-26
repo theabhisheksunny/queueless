@@ -52,6 +52,8 @@ public class BranchService {
     private final ActiveQueueManager activeQueueManager;
     private final SubscriptionService subscriptionService;
     private final IdempotencyKeyRepository idempotencyKeyRepository;
+    private final ShopService shopService;
+    private final org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     public BranchService(BusinessRepository businessRepository,
                          ShopRepository shopRepository,
@@ -60,9 +62,11 @@ public class BranchService {
                          PaymentRecordRepository paymentRecordRepository,
                          AuditLogRepository auditLogRepository,
                          ActiveQueueManager activeQueueManager,
-                         SubscriptionService subscriptionService) {
-        this(businessRepository, shopRepository, userRepository, sessionRepository,
-             paymentRecordRepository, auditLogRepository, activeQueueManager, subscriptionService, null);
+                         SubscriptionService subscriptionService,
+                         IdempotencyKeyRepository idempotencyKeyRepository,
+                         ShopService shopService) {
+        this(businessRepository, shopRepository, userRepository, sessionRepository, paymentRecordRepository,
+             auditLogRepository, activeQueueManager, subscriptionService, idempotencyKeyRepository, shopService, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -74,16 +78,20 @@ public class BranchService {
                          AuditLogRepository auditLogRepository,
                          ActiveQueueManager activeQueueManager,
                          SubscriptionService subscriptionService,
-                         @org.springframework.beans.factory.annotation.Autowired(required = false) IdempotencyKeyRepository idempotencyKeyRepository) {
-        this.businessRepository = businessRepository;
-        this.shopRepository = shopRepository;
-        this.userRepository = userRepository;
-        this.sessionRepository = sessionRepository;
-        this.paymentRecordRepository = paymentRecordRepository;
-        this.auditLogRepository = auditLogRepository;
-        this.activeQueueManager = activeQueueManager;
-        this.subscriptionService = subscriptionService;
+                         @org.springframework.beans.factory.annotation.Autowired(required = false) IdempotencyKeyRepository idempotencyKeyRepository,
+                         ShopService shopService,
+                         @org.springframework.beans.factory.annotation.Autowired(required = false) org.springframework.transaction.PlatformTransactionManager transactionManager) {
+        this.businessRepository = java.util.Objects.requireNonNull(businessRepository, "businessRepository must not be null");
+        this.shopRepository = java.util.Objects.requireNonNull(shopRepository, "shopRepository must not be null");
+        this.userRepository = java.util.Objects.requireNonNull(userRepository, "userRepository must not be null");
+        this.sessionRepository = java.util.Objects.requireNonNull(sessionRepository, "sessionRepository must not be null");
+        this.paymentRecordRepository = java.util.Objects.requireNonNull(paymentRecordRepository, "paymentRecordRepository must not be null");
+        this.auditLogRepository = java.util.Objects.requireNonNull(auditLogRepository, "auditLogRepository must not be null");
+        this.activeQueueManager = java.util.Objects.requireNonNull(activeQueueManager, "activeQueueManager must not be null");
+        this.subscriptionService = java.util.Objects.requireNonNull(subscriptionService, "subscriptionService must not be null");
         this.idempotencyKeyRepository = idempotencyKeyRepository;
+        this.shopService = java.util.Objects.requireNonNull(shopService, "shopService must not be null. Fallback persistence paths are strictly prohibited.");
+        this.transactionManager = transactionManager;
     }
 
     @Transactional(readOnly = true)
@@ -213,7 +221,15 @@ public class BranchService {
             if (!existingBiz.isEmpty()) {
                 business = existingBiz.get(0);
             } else {
-                business = businessRepository.save(new Business(owner, request.getName().trim()));
+                if (transactionManager != null) {
+                    org.springframework.transaction.support.TransactionTemplate tx =
+                            new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+                    tx.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+                    final User ownerForBiz = owner;
+                    business = tx.execute(status -> businessRepository.saveAndFlush(new Business(ownerForBiz, request.getName().trim())));
+                } else {
+                    business = businessRepository.saveAndFlush(new Business(owner, request.getName().trim()));
+                }
             }
         }
 
@@ -240,7 +256,8 @@ public class BranchService {
             shop.setRegistrationFeePaid(BigDecimal.ZERO);
         }
 
-        shop = shopRepository.save(shop);
+        // Centralized transaction-safe persistence mechanism. Zero fallback bypass.
+        shop = shopService.saveShopWithUniqueCodeRetry(shop);
 
         // Pre-create active session and publicQueueId so QR codes work immediately
         String publicQueueId = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
@@ -498,6 +515,7 @@ public class BranchService {
         res.setName(s.getName());
         res.setBranchName(s.getBranchName() != null ? s.getBranchName() : s.getName());
         res.setCategory(s.getCategory());
+        res.setBusinessType(s.getBusinessType());
         res.setAddress(s.getAddress());
         res.setPhone(s.getPhone());
         res.setAvgServiceDurationMinutes(s.getAvgServiceDurationMinutes());

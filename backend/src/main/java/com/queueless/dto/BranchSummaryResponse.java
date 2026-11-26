@@ -9,6 +9,7 @@ public class BranchSummaryResponse {
     private String name;
     private String branchName;
     private String category;
+    private String businessType;
     private String address;
     private String phone;
     private Integer avgServiceDurationMinutes;
@@ -66,6 +67,14 @@ public class BranchSummaryResponse {
 
     public void setCategory(String category) {
         this.category = category;
+    }
+
+    public String getBusinessType() {
+        return businessType;
+    }
+
+    public void setBusinessType(String businessType) {
+        this.businessType = businessType;
     }
 
     public String getAddress() {

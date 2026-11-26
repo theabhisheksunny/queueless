@@ -17,6 +17,8 @@ public interface ShopRepository extends JpaRepository<Shop, Long> {
     Optional<Shop> findFirstByOwnerIdOrderByIsPrimaryDescCreatedAtAsc(Long ownerId);
     List<Shop> findAllByBusinessIdOrderByCreatedAtAsc(Long businessId);
     Optional<Shop> findByIdAndOwnerId(Long id, Long ownerId);
+    Optional<Shop> findByPublicMerchantCode(String publicMerchantCode);
+    boolean existsByPublicMerchantCode(String publicMerchantCode);
     long countByRegistrationStatus(String registrationStatus);
 
     @Query("SELECT s FROM Shop s LEFT JOIN FETCH s.business WHERE s.owner.id IN :ownerIds ORDER BY s.createdAt ASC")

@@ -9,7 +9,7 @@ on:
         default: 'Manual deployment trigger'
 
 concurrency:
-  group: render-backend-deployment
+  group: deploy-staging
   cancel-in-progress: false # Never interrupt an ongoing deployment
 
 permissions:
@@ -17,35 +17,56 @@ permissions:
 
 jobs:
   # ===================================================================
-  # Trigger Render Backend Web Service Deployment
+  # Trigger Render Backend Web Service Deployment & Verify Edge Routing
   # ===================================================================
   deploy-render:
-    name: Trigger Render Backend Deployment
+    name: Deploy to Render & Verify Edge Routing
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Validate Render Deploy Hook Secret (Fail Closed)
-        env:
-          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate Staging Configuration
         run: |
-          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
-            echo "FATAL: RENDER_DEPLOY_HOOK_URL secret is not configured in GitHub repository secrets."
-            echo "Please navigate to Settings -> Secrets and variables -> Actions and add RENDER_DEPLOY_HOOK_URL."
+          python deploy/scripts/validate_config.py deploy/config/staging.yaml
+
+      - name: Resolve Staging Target
+        id: resolve
+        run: |
+          python deploy/scripts/resolve_deployment_target.py deploy/config/staging.yaml --github-output "$GITHUB_OUTPUT"
+
+      - name: Verify Active Provider is Render
+        run: |
+          if [ "${{ steps.resolve.outputs.ACTIVE_PROVIDER }}" != "render" ]; then
+            echo "FATAL: deploy/config/staging.yaml specifies ACTIVE_PROVIDER='${{ steps.resolve.outputs.ACTIVE_PROVIDER }}', not 'render'."
+            echo "Aborting Render deployment to prevent configuration drift."
             exit 1
           fi
-          echo "RENDER_DEPLOY_HOOK_URL secret presence verified."
+
+      - name: Validate Render Deploy Hook Secret (Fail Closed)
+        env:
+          RENDER_HOOK: ${{ secrets.RENDER_STAGING_DEPLOY_HOOK_URL || secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_HOOK" ]; then
+            echo "FATAL: Neither RENDER_STAGING_DEPLOY_HOOK_URL nor RENDER_DEPLOY_HOOK_URL is configured in repository secrets."
+            exit 1
+          fi
+          echo "Render deploy hook secret verified."
 
       - name: Trigger Render Deploy Hook Webhook
         env:
-          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          RENDER_HOOK: ${{ secrets.RENDER_STAGING_DEPLOY_HOOK_URL || secrets.RENDER_DEPLOY_HOOK_URL }}
           DEPLOY_REASON: ${{ inputs.reason }}
         run: |
-          echo "Dispatching deployment hook to Render for service 'queueless-backend'..."
+          echo "Dispatching deployment hook to Render for service '${{ steps.resolve.outputs.BACKEND_SERVICE_NAME }}'..."
           echo "Reason: $DEPLOY_REASON"
-          HTTP_STATUS=$(curl -s -o render_response.json -w "%{http_code}" -X POST "$RENDER_DEPLOY_HOOK_URL")
+          HTTP_STATUS=$(curl -s -o render_response.json -w "%{http_code}" -X POST "$RENDER_HOOK")
           echo "Render deploy hook HTTP status code: $HTTP_STATUS"
           if [ -f render_response.json ]; then
             echo "Render response:"
@@ -59,13 +80,30 @@ jobs:
             exit 1
           fi
 
+      - name: Pre-Traffic Direct Backend Health Verification
+        run: |
+          echo "Waiting for Render container startup and health readiness..."
+          python deploy/scripts/verify_backend_health.py \
+            --url "${{ steps.resolve.outputs.BACKEND_HEALTH_URL }}" \
+            --timeout "${{ steps.resolve.outputs.BACKEND_HEALTH_TIMEOUT_SECONDS }}"
+
+      - name: Switch Edge Traffic & Verify Edge Route
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          python deploy/scripts/switch_edge_traffic.py \
+            --env staging \
+            --worker-name "${{ steps.resolve.outputs.EDGE_WORKER_NAME }}" \
+            --new-backend-url "${{ steps.resolve.outputs.BACKEND_URL }}" \
+            --backend-health-url "${{ steps.resolve.outputs.BACKEND_HEALTH_URL }}" \
+            --edge-public-url "${{ steps.resolve.outputs.EDGE_PUBLIC_URL }}"
+
       - name: Deployment Instructions & Monitoring Notice
         run: |
           echo "=================================================================="
-          echo "Render Deployment Trigger Complete"
-          echo "Service: queueless-backend"
-          echo "Health Check Endpoint: /actuator/health"
-          echo "Render Dashboard: https://dashboard.render.com"
-          echo "Cloudflare Worker Reverse Proxy: /api/* -> Render backend URL"
-          echo "Note: Render Free build & container deployment typically takes 2-4 minutes."
+          echo "Render Deployment Trigger & Verification Complete"
+          echo "Service: ${{ steps.resolve.outputs.BACKEND_SERVICE_NAME }}"
+          echo "Direct Health Check: ${{ steps.resolve.outputs.BACKEND_HEALTH_URL }}"
+          echo "Edge Public URL: ${{ steps.resolve.outputs.EDGE_PUBLIC_URL }}"
           echo "=================================================================="

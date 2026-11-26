@@ -1,11 +1,13 @@
 package com.queueless;
 
+import com.queueless.dto.AuthResponse;
 import com.queueless.dto.BranchSummaryResponse;
 import com.queueless.dto.CreateBranchRequest;
 import com.queueless.dto.CustomerJoinRequest;
 import com.queueless.dto.CustomerJoinResponse;
 import com.queueless.dto.RegisterRequest;
 import com.queueless.entity.AuditLog;
+import com.queueless.entity.Business;
 import com.queueless.entity.QueueCustomer;
 import com.queueless.entity.Shop;
 import com.queueless.entity.User;
@@ -16,7 +18,9 @@ import com.queueless.service.AuthService;
 import com.queueless.service.BranchService;
 import com.queueless.service.EntitlementService;
 import com.queueless.service.QueueService;
+import com.queueless.service.ShopService;
 import com.queueless.service.SseEmitterService;
+import com.queueless.service.SseTicketService;
 import com.queueless.service.SubscriptionService;
 import io.zonky.test.db.postgres.embedded.EmbeddedPostgres;
 import org.junit.jupiter.api.AfterAll;
@@ -24,6 +28,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -32,7 +37,11 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -123,6 +132,18 @@ public class PostgreSqlDistributedConcurrencyAndIdempotencyTest {
     @Autowired
     private IdempotencyKeyRepository idempotencyKeyRepository;
 
+    @Autowired
+    private ShopService shopService;
+
+    @Autowired
+    private com.queueless.repository.TrialEligibilityLedgerRepository trialEligibilityLedgerRepository;
+
+    @Autowired
+    private com.queueless.service.PhoneNormalizationService phoneNormalizationService;
+
+    @Autowired
+    private com.queueless.controller.QueueController queueController;
+
     private BranchService instanceB;
 
     private BranchService createSecondInstance() {
@@ -135,7 +156,8 @@ public class PostgreSqlDistributedConcurrencyAndIdempotencyTest {
                 auditLogRepository,
                 activeQueueManager,
                 subscriptionService,
-                idempotencyKeyRepository
+                idempotencyKeyRepository,
+                shopService
         );
     }
 
@@ -717,5 +739,272 @@ public class PostgreSqlDistributedConcurrencyAndIdempotencyTest {
                 ps.executeQuery();
             }
         }
+    }
+
+    // =========================================================================
+    // PART 5: REAL POSTGRESQL DISTRIBUTED SSE TICKET CONCURRENCY & ATOMIC STORE
+    // =========================================================================
+
+    @Test
+    @DisplayName("5.1 Real PostgreSQL: Ticket issued by Instance A can be consumed by Instance B")
+    void testTicketIssuedByInstanceAAndConsumedByInstanceBOnRealPostgreSql() {
+        User owner = userRepository.save(new User("owner_ab_" + System.currentTimeMillis() + "@test.com", "pass", "Owner AB", "+919800000001", com.queueless.entity.UserRole.ROLE_OWNER));
+        Shop shop = shopService.saveShopWithUniqueCodeRetry(new Shop(owner, "Shop AB", "Retail", 15));
+
+        SseTicketService instanceA = new SseTicketService(jdbcTemplate, null, Clock.systemUTC());
+        SseTicketService instanceB = new SseTicketService(jdbcTemplate, null, Clock.systemUTC());
+
+        SseTicketService.SseTicket issued = instanceA.issueTicket(owner.getId(), shop.getId());
+        assertNotNull(issued);
+        assertTrue(issued.ticket().startsWith("stk_"));
+
+        // Verify stored in PostgreSQL sse_tickets table
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM sse_tickets WHERE ticket = ?", Integer.class, issued.ticket());
+        assertEquals(1, count, "Ticket must exist in real PostgreSQL database");
+
+        // Consumed by Instance B
+        SseTicketService.SseTicket consumed = instanceB.consumeTicket(issued.ticket(), shop.getId(), owner.getId());
+        assertNotNull(consumed);
+        assertEquals(issued.ticket(), consumed.ticket());
+        assertEquals(owner.getId(), consumed.userId());
+        assertEquals(shop.getId(), consumed.shopId());
+
+        // Verify atomically removed from PostgreSQL
+        Integer afterCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM sse_tickets WHERE ticket = ?", Integer.class, issued.ticket());
+        assertEquals(0, afterCount, "Ticket must be atomically removed from real PostgreSQL upon consumption");
+    }
+
+    @Test
+    @DisplayName("5.2 Real PostgreSQL: Concurrent consumption across instances allows exactly one winner")
+    void testConcurrentConsumptionAcrossInstancesRealPostgreSql() throws Exception {
+        User owner = userRepository.save(new User("owner_conc_" + System.currentTimeMillis() + "@test.com", "pass", "Owner Conc", "+919800000002", com.queueless.entity.UserRole.ROLE_OWNER));
+        Shop shop = shopService.saveShopWithUniqueCodeRetry(new Shop(owner, "Shop Conc", "Retail", 15));
+
+        SseTicketService instanceA = new SseTicketService(jdbcTemplate, null, Clock.systemUTC());
+        SseTicketService instanceB = new SseTicketService(jdbcTemplate, null, Clock.systemUTC());
+
+        SseTicketService.SseTicket issued = instanceA.issueTicket(owner.getId(), shop.getId());
+
+        int threads = 10;
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch finishLatch = new CountDownLatch(threads);
+        List<SseTicketService.SseTicket> successful = Collections.synchronizedList(new ArrayList<>());
+        List<Exception> failed = Collections.synchronizedList(new ArrayList<>());
+
+        for (int i = 0; i < threads; i++) {
+            final int idx = i;
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    // Alternate between Instance A and Instance B
+                    SseTicketService consumer = (idx % 2 == 0) ? instanceA : instanceB;
+                    SseTicketService.SseTicket c = consumer.consumeTicket(issued.ticket(), shop.getId(), owner.getId());
+                    successful.add(c);
+                } catch (Exception ex) {
+                    failed.add(ex);
+                } finally {
+                    finishLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown();
+        finishLatch.await(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertEquals(1, successful.size(), "Exactly ONE consumer must succeed across distributed instances");
+        assertEquals(threads - 1, failed.size(), "All other concurrent attempts must fail closed");
+        for (Exception e : failed) {
+            assertTrue(e instanceof AccessDeniedException, "Failed attempts must throw AccessDeniedException");
+        }
+    }
+
+    @Test
+    @DisplayName("5.3 Real PostgreSQL: Replay of consumed ticket is rejected")
+    void testReplayAttackRejectedRealPostgreSql() {
+        User owner = userRepository.save(new User("owner_rep_" + System.currentTimeMillis() + "@test.com", "pass", "Owner Rep", "+919800000003", com.queueless.entity.UserRole.ROLE_OWNER));
+        Shop shop = shopService.saveShopWithUniqueCodeRetry(new Shop(owner, "Shop Rep", "Retail", 15));
+
+        SseTicketService instanceA = new SseTicketService(jdbcTemplate, null, Clock.systemUTC());
+        SseTicketService instanceB = new SseTicketService(jdbcTemplate, null, Clock.systemUTC());
+
+        SseTicketService.SseTicket issued = instanceA.issueTicket(owner.getId(), shop.getId());
+        instanceB.consumeTicket(issued.ticket(), shop.getId(), owner.getId());
+
+        // Replay attempt by Instance A or Instance B
+        assertThrows(AccessDeniedException.class, () -> {
+            instanceA.consumeTicket(issued.ticket(), shop.getId(), owner.getId());
+        }, "Replay on Instance A must be rejected");
+
+        assertThrows(AccessDeniedException.class, () -> {
+            instanceB.consumeTicket(issued.ticket(), shop.getId(), owner.getId());
+        }, "Replay on Instance B must be rejected");
+    }
+
+    @Test
+    @DisplayName("5.4 Real PostgreSQL: Expired ticket is rejected and purged")
+    void testExpiredTicketRejectedRealPostgreSql() {
+        User owner = userRepository.save(new User("owner_exp_" + System.currentTimeMillis() + "@test.com", "pass", "Owner Exp", "+919800000004", com.queueless.entity.UserRole.ROLE_OWNER));
+        Shop shop = shopService.saveShopWithUniqueCodeRetry(new Shop(owner, "Shop Exp", "Retail", 15));
+
+        Instant baseTime = Instant.now();
+        Clock fixedClock = Clock.fixed(baseTime, ZoneOffset.UTC);
+        SseTicketService instanceA = new SseTicketService(jdbcTemplate, null, fixedClock);
+
+        SseTicketService.SseTicket issued = instanceA.issueTicket(owner.getId(), shop.getId());
+
+        // Fast forward clock by 65 seconds (> 60s TTL)
+        Clock futureClock = Clock.fixed(baseTime.plusSeconds(65), ZoneOffset.UTC);
+        SseTicketService instanceB = new SseTicketService(jdbcTemplate, null, futureClock);
+
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class, () -> {
+            instanceB.consumeTicket(issued.ticket(), shop.getId(), owner.getId());
+        });
+        assertTrue(ex.getMessage().contains("expired"), "Exception must state ticket has expired");
+    }
+
+    @Test
+    @DisplayName("5.5 Real PostgreSQL: Wrong-shop and wrong-user tickets are rejected")
+    void testWrongShopAndWrongUserRejectedRealPostgreSql() {
+        User owner1 = userRepository.save(new User("owner_w1_" + System.currentTimeMillis() + "@test.com", "pass", "Owner W1", "+919800000005", com.queueless.entity.UserRole.ROLE_OWNER));
+        User owner2 = userRepository.save(new User("owner_w2_" + System.currentTimeMillis() + "@test.com", "pass", "Owner W2", "+919800000006", com.queueless.entity.UserRole.ROLE_OWNER));
+        Shop shop1 = shopService.saveShopWithUniqueCodeRetry(new Shop(owner1, "Shop W1", "Retail", 15));
+        Shop shop2 = shopService.saveShopWithUniqueCodeRetry(new Shop(owner2, "Shop W2", "Retail", 15));
+
+        SseTicketService instance = new SseTicketService(jdbcTemplate, null, Clock.systemUTC());
+
+        SseTicketService.SseTicket issued1 = instance.issueTicket(owner1.getId(), shop1.getId());
+
+        // Wrong shop requested
+        AccessDeniedException shopEx = assertThrows(AccessDeniedException.class, () -> {
+            instance.consumeTicket(issued1.ticket(), shop2.getId(), owner1.getId());
+        });
+        assertTrue(shopEx.getMessage().contains("not valid for the requested shop"));
+
+        // Wrong user requested for a freshly issued ticket
+        SseTicketService.SseTicket issued2 = instance.issueTicket(owner1.getId(), shop1.getId());
+        AccessDeniedException userEx = assertThrows(AccessDeniedException.class, () -> {
+            instance.consumeTicket(issued2.ticket(), shop1.getId(), owner2.getId());
+        });
+        assertTrue(userEx.getMessage().contains("not valid for the authenticated user"));
+    }
+
+    @Test
+    @DisplayName("5.6 Database failure behavior fails closed without silent bypass")
+    void testDatabaseFailureBehaviorFailsClosed() {
+        org.springframework.jdbc.core.JdbcTemplate failingJdbc = new org.springframework.jdbc.core.JdbcTemplate() {
+            @Override
+            public <T> T execute(String sql, org.springframework.jdbc.core.PreparedStatementCallback<T> action) {
+                throw new org.springframework.dao.DataAccessResourceFailureException("Simulated connection timeout to database");
+            }
+        };
+
+        SseTicketService service = new SseTicketService(failingJdbc, null, Clock.systemUTC());
+
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class, () -> {
+            service.consumeTicket("stk_sample123", 100L, 200L);
+        });
+        assertTrue(ex.getMessage().contains("Database error during ticket verification"));
+    }
+
+    // =========================================================================
+    // SECTION 6: REAL POSTGRESQL: REGISTRATION RECOVERY & URI EXPOSURE PROOF
+    // =========================================================================
+
+    @Test
+    @DisplayName("6.1 Real PostgreSQL: Crash after Stage 2 reconciled without duplicate shops")
+    void testRealPostgreSqlCrashAfterStage2Reconciled() {
+        String phone = "+9197" + (System.currentTimeMillis() % 100000000L);
+        String normalizedPhone = phoneNormalizationService.normalize(phone);
+
+        // Seed incomplete user with shop in PostgreSQL
+        User pendingUser = new User("pg_pending_" + System.currentTimeMillis() + "@test.com", "pass", "PG Pending", normalizedPhone, com.queueless.entity.UserRole.ROLE_OWNER);
+        pendingUser.setStatus(User.STATUS_PENDING_REGISTRATION);
+        pendingUser = userRepository.saveAndFlush(pendingUser);
+        Business business = businessRepository.saveAndFlush(new Business(pendingUser, "PG Business"));
+        Shop shop = shopService.saveShopWithUniqueCodeRetry(new Shop(pendingUser, "Orphaned Shop", "Retail", 15));
+
+        assertTrue(authService.isIncompleteRegistration(pendingUser));
+
+        // Register with same phone auto-reconciles in real PostgreSQL and succeeds
+        RegisterRequest req = new RegisterRequest();
+        req.setPhone(phone);
+        req.setPin("123456");
+        req.setConfirmPin("123456");
+        req.setShopName("PG Recovered Shop");
+        req.setCategory("Retail");
+
+        AuthResponse res = authService.register(req);
+        assertNotNull(res);
+
+        User activeUser = userRepository.findByPhone(normalizedPhone).orElseThrow();
+        assertEquals(User.STATUS_ACTIVE, activeUser.getStatus());
+        assertEquals(1, shopRepository.findAllByOwnerIdOrderByCreatedAtAsc(activeUser.getId()).size(),
+                "Must have exactly 1 shop in PostgreSQL; orphaned shop must be cleaned up");
+        assertTrue(trialEligibilityLedgerRepository.existsByNormalizedPhone(normalizedPhone));
+    }
+
+    @Test
+    @DisplayName("6.2 Real PostgreSQL: Concurrent registration allows exactly 1 winner and prevents duplicate trials")
+    void testRealPostgreSqlConcurrentRegistrationPreventsDuplicateTrials() throws Exception {
+        String phone = "+9196" + (System.currentTimeMillis() % 100000000L);
+        int threads = 4;
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch finishLatch = new CountDownLatch(threads);
+        List<AuthResponse> successList = Collections.synchronizedList(new ArrayList<>());
+        List<Exception> failList = Collections.synchronizedList(new ArrayList<>());
+
+        for (int i = 0; i < threads; i++) {
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    RegisterRequest req = new RegisterRequest();
+                    req.setPhone(phone);
+                    req.setPin("123456");
+                    req.setConfirmPin("123456");
+                    req.setShopName("Concurrent PG Shop");
+                    req.setCategory("Retail");
+                    successList.add(authService.register(req));
+                } catch (Exception e) {
+                    failList.add(e);
+                } finally {
+                    finishLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown();
+        finishLatch.await(30, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertEquals(1, successList.size(), "Exactly ONE registration must succeed in PostgreSQL");
+        assertEquals(threads - 1, failList.size(), "All other concurrent registrations must fail");
+
+        String normalized = phoneNormalizationService.normalize(phone);
+        assertEquals(1, userRepository.findAll().stream().filter(u -> normalized.equals(u.getPhone())).count(),
+                "Exactly 1 user must exist in PostgreSQL");
+        assertTrue(trialEligibilityLedgerRepository.existsByNormalizedPhone(normalized),
+                "Exactly 1 trial ledger entry must exist in PostgreSQL");
+    }
+
+    @Test
+    @DisplayName("6.3 Real PostgreSQL: Header-authenticated SSE stream connects with zero credentials in URI")
+    void testRealPostgreSqlHeaderAuthenticatedSseStream() {
+        String phone = "+9195" + (System.currentTimeMillis() % 100000000L);
+        RegisterRequest req = new RegisterRequest();
+        req.setPhone(phone);
+        req.setPin("123456");
+        req.setConfirmPin("123456");
+        req.setShopName("PG Header Shop");
+        req.setCategory("Retail");
+
+        AuthResponse auth = authService.register(req);
+        java.security.Principal principal = () -> auth.getPhone();
+
+        // Direct header authentication without URI credentials on real PostgreSQL
+        var emitter = queueController.streamOwnerUpdates(principal, auth.getShopId(), null, null, null, null, null);
+        assertNotNull(emitter, "Stream emitter must be created on /{shopId}/stream via header authentication");
     }
 }

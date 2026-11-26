@@ -13,15 +13,13 @@
     "not_found_handling": "single-page-application",
     "html_handling": "auto-trailing-slash"
   },
-  "vars": {
-    "BACKEND_API_URL": "https://queueless-backend-1043223278240.asia-south1.run.app"
-  },
+  // BACKEND_API_URL is managed exclusively via dynamic deployment workflows
+  // (deploy/scripts/switch_edge_traffic.py) using `wrangler deploy --var BACKEND_API_URL:<target_url> --keep-vars`.
+  // Static variables are omitted from this configuration to prevent frontend asset deployments
+  // from silently overwriting active backend routing.
   "env": {
     "staging": {
-      "name": "queueless-staging",
-      "vars": {
-        "BACKEND_API_URL": "https://queueless-backend-staging-1043223278240.asia-south1.run.app"
-      }
+      "name": "queueless-staging"
     }
   },
   "observability": {

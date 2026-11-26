@@ -1,0 +1,60 @@
+version: "1.0"
+environment: "production"
+description: "QueueLess Production Environment — Render Managed Architecture with Cloud Run Standby"
+
+spring_profile: "prod"
+
+# SINGLE SOURCE OF TRUTH: exactly one of [render, cloud_run]
+active_provider: "render"
+
+database:
+  provider: "supabase"
+  pooler_port: 5432
+  pooler_type: "session"
+  ssl_mode: "require"
+  project_ref_var: "QUEUELESS_PROD_SUPABASE_PROJECT_REF"
+  datasource_url_secret_key: "SPRING_DATASOURCE_URL"
+  migrator_user_secret_key: "SPRING_FLYWAY_USER"
+  migrator_password_secret_key: "SPRING_FLYWAY_PASSWORD"
+  app_password_secret_key: "SPRING_DATASOURCE_PASSWORD"
+
+edge:
+  provider: "cloudflare_workers"
+  worker_name: "queueless"
+  public_url: "https://queueless.theabhisheksunny.workers.dev"
+  health_check_path: "/api/public/queue/vapid-public-key"
+  trusted_origins:
+    - "https://queueless.theabhisheksunny.workers.dev"
+
+providers:
+  render:
+    service_name: "queueless-backend-prod"
+    backend_url: "https://queueless-backend.onrender.com"
+    region: "singapore"
+    plan: "starter"
+    deploy_hook_secret_key: "RENDER_PROD_DEPLOY_HOOK_URL"
+    health_check_path: "/actuator/health"
+    health_timeout_seconds: 120
+    cleanup_on_startup: false
+
+  cloud_run:
+    service_name: "queueless-backend"
+    backend_url: "https://queueless-backend-1043223278240.asia-south1.run.app"
+    region: "asia-south1"
+    min_instances: 0
+    max_instances: 3
+    cpu: "1"
+    memory: "1Gi"
+    service_account_secret_key: "GCP_PROD_DEPLOYER_SA"
+    health_check_path: "/actuator/health"
+    health_timeout_seconds: 120
+
+  aws:
+    # Extension stub: strictly non-operational in v1
+    service_type: "app_runner"
+    service_name: "queueless-backend-prod"
+    backend_url: "https://api.queueless.in"
+    region: "ap-south-1"
+    role_arn_secret_key: "AWS_PROD_DEPLOYER_ROLE_ARN"
+    health_check_path: "/actuator/health"
+    health_timeout_seconds: 120

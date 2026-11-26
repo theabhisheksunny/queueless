@@ -1,0 +1,62 @@
+version: "1.0"
+environment: "staging"
+description: "QueueLess Staging Environment — Render Primary with Cloud Run Standby"
+
+spring_profile: "staging"
+
+# SINGLE SOURCE OF TRUTH: exactly one of [render, cloud_run]
+active_provider: "render"
+
+database:
+  provider: "supabase"
+  pooler_port: 5432
+  pooler_type: "session"
+  ssl_mode: "require"
+  project_ref_var: "QUEUELESS_STAGING_SUPABASE_PROJECT_REF"
+  datasource_url_secret_key: "SPRING_DATASOURCE_URL"
+  migrator_user_secret_key: "SPRING_FLYWAY_USER"
+  migrator_password_secret_key: "SPRING_FLYWAY_PASSWORD"
+  app_password_secret_key: "SPRING_DATASOURCE_PASSWORD"
+
+edge:
+  provider: "cloudflare_workers"
+  worker_name: "queueless-staging"
+  public_url: "https://queueless-staging.theabhisheksunny.workers.dev"
+  health_check_path: "/api/public/queue/vapid-public-key"
+  trusted_origins:
+    - "https://queueless-staging.theabhisheksunny.workers.dev"
+    - "http://localhost:5173"
+    - "http://localhost:3000"
+
+providers:
+  render:
+    service_name: "queueless-backend-staging"
+    backend_url: "https://queueless-backend-staging.onrender.com"
+    region: "singapore"
+    plan: "free"
+    deploy_hook_secret_key: "RENDER_STAGING_DEPLOY_HOOK_URL"
+    health_check_path: "/actuator/health"
+    health_timeout_seconds: 300
+    cleanup_on_startup: true
+
+  cloud_run:
+    service_name: "queueless-backend-staging"
+    backend_url: "https://queueless-backend-staging-1043223278240.asia-south1.run.app"
+    region: "asia-south1"
+    min_instances: 0
+    max_instances: 1
+    cpu: "1"
+    memory: "1Gi"
+    service_account_secret_key: "GCP_STAGING_DEPLOYER_SA"
+    health_check_path: "/actuator/health"
+    health_timeout_seconds: 120
+
+  aws:
+    # Extension stub: strictly non-operational in v1
+    service_type: "app_runner"
+    service_name: "queueless-backend-staging"
+    backend_url: "https://staging.queueless.awsapprunner.com"
+    region: "ap-south-1"
+    role_arn_secret_key: "AWS_STAGING_DEPLOYER_ROLE_ARN"
+    health_check_path: "/actuator/health"
+    health_timeout_seconds: 180

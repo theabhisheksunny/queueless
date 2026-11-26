@@ -1,6 +1,6 @@
 // QueueLess Service Worker for Web Push & Offline Support
 
-self.addEventListener('install', (event) => {
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 

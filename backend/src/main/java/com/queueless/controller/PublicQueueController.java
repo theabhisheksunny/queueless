@@ -43,6 +43,15 @@ public class PublicQueueController {
     }
 
     /**
+     * Canonical Permanent Merchant URL: Customer previews queue info by permanent opaque merchant code.
+     */
+    @GetMapping("/shop/{merchantCode}/info")
+    public ResponseEntity<PublicQueueInfoResponse> getCanonicalShopQueueInfo(@PathVariable String merchantCode) {
+        PublicQueueInfoResponse response = queueService.getCanonicalShopQueueInfo(merchantCode);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * Customer scans QR code and joins the queue.
      */
     @PostMapping("/{publicQueueId}/join")
@@ -50,6 +59,17 @@ public class PublicQueueController {
             @PathVariable String publicQueueId,
             @Valid @RequestBody CustomerJoinRequest request) {
         CustomerJoinResponse response = queueService.customerJoinQueue(publicQueueId, request);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Canonical Permanent Merchant URL: Customer joins queue by permanent opaque merchant code.
+     */
+    @PostMapping("/shop/{merchantCode}/join")
+    public ResponseEntity<CustomerJoinResponse> canonicalShopJoinQueue(
+            @PathVariable String merchantCode,
+            @Valid @RequestBody CustomerJoinRequest request) {
+        CustomerJoinResponse response = queueService.canonicalShopJoinQueue(merchantCode, request);
         return ResponseEntity.ok(response);
     }
 

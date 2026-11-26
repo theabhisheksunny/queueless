@@ -12,7 +12,7 @@ Generates:
 """
 
 import os
-import sys
+
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -53,8 +53,9 @@ SVG_CONTENT = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" w
 </svg>
 """
 
+
 def generate_master_image(size=1024):
-    img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     c1 = (139, 92, 246)  # #8b5cf6
     c2 = (109, 40, 217)  # #6d28d9
 
@@ -65,25 +66,24 @@ def generate_master_image(size=1024):
     g = (c1[1] + (c2[1] - c1[1]) * t).astype(np.uint8)
     b = (c1[2] + (c2[2] - c1[2]) * t).astype(np.uint8)
     a = np.full((size, size), 255, dtype=np.uint8)
-    grad = Image.fromarray(np.dstack((r, g, b, a)), 'RGBA')
+    grad = Image.fromarray(np.dstack((r, g, b, a)), "RGBA")
 
-    bg_mask = Image.new('L', (size, size), 0)
+    bg_mask = Image.new("L", (size, size), 0)
     # 22% squircle corner radius
     ImageDraw.Draw(bg_mask).rounded_rectangle([0, 0, size - 1, size - 1], radius=int(size * 0.218), fill=255)
     img.paste(grad, (0, 0), bg_mask)
 
     # 2. Foreground white mask
     scale = size / 512.0
-    fg_mask = Image.new('L', (size, size), 0)
+    fg_mask = Image.new("L", (size, size), 0)
     fg_draw = ImageDraw.Draw(fg_mask)
 
     def r_rect(x, y, w, h, radius, fill):
-        fg_draw.rounded_rectangle([
-            round(x * scale),
-            round(y * scale),
-            round((x + w) * scale),
-            round((y + h) * scale)
-        ], radius=max(2, round(radius * scale)), fill=fill)
+        fg_draw.rounded_rectangle(
+            [round(x * scale), round(y * scale), round((x + w) * scale), round((y + h) * scale)],
+            radius=max(2, round(radius * scale)),
+            fill=fill,
+        )
 
     def draw_finder(x, y):
         # Outer finder box (128x128, outer stroke 24)
@@ -109,10 +109,11 @@ def generate_master_image(size=1024):
     r_rect(348, 388, 64, 24, 8, 255)
     r_rect(288, 348, 24, 64, 8, 255)
 
-    white = Image.new('RGBA', (size, size), (255, 255, 255, 255))
+    white = Image.new("RGBA", (size, size), (255, 255, 255, 255))
     img.paste(white, (0, 0), fg_mask)
 
     return img
+
 
 def main():
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -152,10 +153,11 @@ def main():
     p16 = master.resize((16, 16), Image.Resampling.LANCZOS)
 
     # Save multi-size ICO
-    p48.save(ico_path, format="ICO", sizes=[(16, 16), (32, 32), (48, 48)])
+    p48.save(ico_path, format="ICO", sizes=[(16, 16), (32, 32), (48, 48)], append_images=[p32, p16])
     print(f"  [CREATED] {ico_path} (Multi-res: 16x16, 32x32, 48x48)")
 
     print("All favicon assets generated successfully!")
+
 
 if __name__ == "__main__":
     main()

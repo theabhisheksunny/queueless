@@ -77,6 +77,7 @@ export const App: React.FC = () => {
             <Routes>
               {/* Public Customer Routes */}
               <Route path="/join/:publicQueueId" element={<CustomerJoinPage />} />
+              <Route path="/join/shop/:merchantCode" element={<CustomerJoinPage />} />
               <Route path="/track/:trackingToken" element={<CustomerTrackPage />} />
 
               {/* Owner & Staff Authentication */}

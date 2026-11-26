@@ -166,32 +166,44 @@ export const DashboardPage: React.FC = () => {
     }
   };
 
-  // Fetch initial dashboard and setup Server-Sent Events (SSE)
+  // Fetch initial dashboard and setup Server-Sent Events (SSE) via header-authenticated fetch stream
   useEffect(() => {
     fetchDashboard();
 
-    const sseUrl = api.getOwnerSseUrl(activeShopId ?? undefined);
-    const eventSource = new EventSource(sseUrl);
+    let disconnect: (() => void) | null = null;
+    let isCancelled = false;
 
-    eventSource.onopen = () => {
-      setSseConnected(true);
-    };
-
-    eventSource.addEventListener('QUEUE_UPDATED', (e: MessageEvent) => {
+    async function initSse() {
       try {
-        const updatedData: QueueDashboardData = JSON.parse(e.data);
-        setDashboard(updatedData);
-      } catch (err) {
-        console.error('Failed to parse SSE data', err);
+        const teardown = await api.connectOwnerStream(
+          activeShopId ?? undefined,
+          (updatedData: QueueDashboardData) => {
+            if (!isCancelled) setDashboard(updatedData);
+          },
+          () => {
+            if (!isCancelled) setSseConnected(true);
+          },
+          () => {
+            if (!isCancelled) setSseConnected(false);
+          }
+        );
+        if (isCancelled) {
+          teardown();
+        } else {
+          disconnect = teardown;
+        }
+      } catch {
+        if (!isCancelled) setSseConnected(false);
       }
-    });
+    }
 
-    eventSource.onerror = () => {
-      setSseConnected(false);
-    };
+    initSse();
 
     return () => {
-      eventSource.close();
+      isCancelled = true;
+      if (disconnect) {
+        disconnect();
+      }
     };
   }, [fetchDashboard, activeShopId]);
 
@@ -654,6 +666,11 @@ export const DashboardPage: React.FC = () => {
                 <ThemeIcon className="w-3.5 h-3.5" />
                 <span>{currentCategory || theme.categoryLabel}</span>
               </span>
+              {(dashboard?.businessType || user?.businessType) && (
+                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-slate-700">
+                  {dashboard?.businessType || user?.businessType}
+                </span>
+              )}
               <div className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
                 {sseConnected ? (
                   <>
@@ -1107,6 +1124,8 @@ export const DashboardPage: React.FC = () => {
         shopName={dashboard?.shopName || user?.shopName || 'Shop Queue'}
         category={currentCategory || 'Other Local Business'}
         publicQueueId={dashboard?.publicQueueId || ''}
+        publicMerchantCode={dashboard?.publicMerchantCode}
+        canonicalJoinUrl={dashboard?.canonicalJoinUrl}
       />
 
       <ConfirmModal

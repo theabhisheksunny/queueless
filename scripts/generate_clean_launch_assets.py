@@ -204,8 +204,8 @@ DELETE FROM audit_logs;
 -- 3.1. Insert Demo Owner User
 INSERT INTO users (
     id, email, password, full_name, phone, role, status,
-    failed_pin_attempts, is_temporary_pin, active_session_id,
-    created_at, updated_at
+    failed_pin_attempts, temporary_pin, active_session_id,
+    credentials_updated_at, created_at, updated_at
 ) VALUES (
     1001,
     '{creds['email']}',
@@ -217,6 +217,7 @@ INSERT INTO users (
     0,
     FALSE,
     'session-demo-owner-init-2026',
+    CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP
 );
@@ -235,8 +236,8 @@ INSERT INTO businesses (
 -- 3.3. Insert Minimal Demo Shop (Retail & Shopping / General Store)
 INSERT INTO shops (
     id, owner_id, business_id, name, category, business_type,
-    is_primary, registration_status, registration_fee_paid,
-    public_merchant_code, created_at, updated_at
+    avg_service_duration_minutes, is_primary, registration_status,
+    registration_fee_paid, public_merchant_code, created_at, updated_at
 ) VALUES (
     3001,
     1001,
@@ -244,6 +245,7 @@ INSERT INTO shops (
     'QueueLess Demo Experience Store',
     'Retail & Shopping',
     'General Store',
+    15,
     TRUE,
     'REGISTERED',
     0.00,
@@ -254,19 +256,21 @@ INSERT INTO shops (
 
 -- 3.4. Insert Demo Shop Membership
 INSERT INTO shop_memberships (
-    id, user_id, shop_id, role, created_at
+    id, user_id, shop_id, status, created_at, updated_at
 ) VALUES (
     4001,
     1001,
     3001,
-    'OWNER',
+    'ACTIVE',
+    CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP
 );
 
 -- 3.5. Insert Active 7-Day Demo Trial Subscription (for queue creation entitlement)
 INSERT INTO subscriptions (
     id, shop_id, owner_id, plan_type, status,
-    start_date, end_date, trial_ends_at, created_at, updated_at
+    start_date, end_date, amount, trial_started_at, trial_ends_at,
+    created_at, updated_at
 ) VALUES (
     5001,
     3001,
@@ -275,6 +279,8 @@ INSERT INTO subscriptions (
     'ACTIVE',
     CURRENT_DATE,
     CURRENT_DATE + INTERVAL '7 days',
+    0.00,
+    CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP + INTERVAL '7 days',
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP

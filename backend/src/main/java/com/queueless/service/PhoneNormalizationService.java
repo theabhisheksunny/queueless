@@ -14,7 +14,8 @@ public class PhoneNormalizationService {
 
     private final String hmacSecret;
 
-    public PhoneNormalizationService(@Value("${app.jwt.secret:queueless-default-secure-hmac-key-2026-32bytes}") String hmacSecret) {
+    public PhoneNormalizationService(
+            @Value("${app.phone.hmac.secret:${PHONE_HMAC_SECRET:${app.jwt.secret:queueless-default-secure-hmac-key-2026-32bytes}}}") String hmacSecret) {
         this.hmacSecret = hmacSecret;
     }
 

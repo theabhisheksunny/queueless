@@ -117,14 +117,14 @@ INSERT INTO users (
 ) VALUES (
     1001,
     'demo.owner.launch2026@queueless.in',
-    '$2b$10$4GDTDxu38B4MAUD1cdmSs.cu.8tdZWljuj8cpUIXvgkQnQso4DBc6',
+    '$2b$10$rfUYg3O.GBEdPUxmeQAGAObLjx/OPgYPt4xZTVSNLEJTbE6Ua6NN.',
     'QueueLess Demo Owner',
     '+919876500001',
     'ROLE_OWNER',
     'ACTIVE',
     0,
     FALSE,
-    'session-demo-owner-init-2026',
+    NULL,
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP
@@ -228,7 +228,7 @@ INSERT INTO trial_eligibility_ledger (
 ) VALUES (
     6001,
     '+919876500001',
-    'hmac-sha256-demo-seed-identity-2026',
+    '42ae8e49a6a1d27ff4987bcdb1c3b2c876d036d2e7fb2514750f1611eddf1e84',
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP + INTERVAL '7 days',
     CURRENT_TIMESTAMP,
@@ -258,14 +258,16 @@ SELECT
     (SELECT COUNT(*) FROM shops) AS demo_shop_count,                -- Expected: 1
     (SELECT COUNT(*) FROM businesses) AS demo_business_count,        -- Expected: 1
     (SELECT COUNT(*) FROM shop_memberships) AS demo_membership_count,-- Expected: 1
-    (SELECT COUNT(*) FROM subscriptions) AS demo_sub_count,          -- Expected: 1
-    (SELECT COUNT(*) FROM trial_eligibility_ledger) AS demo_ledger,  -- Expected: 1
-    (SELECT COUNT(*) FROM queue_customers) AS customers_count,      -- Expected: 0
-    (SELECT COUNT(*) FROM queue_sessions) AS queue_sessions_count,  -- Expected: 0
-    (SELECT COUNT(*) FROM customer_push_subscriptions) AS push_subs,-- Expected: 0
-    (SELECT COUNT(*) FROM payment_records) AS old_payment_records,  -- Expected: 0
-    (SELECT COUNT(*) FROM subscription_seats) AS old_seats,         -- Expected: 0
-    (SELECT COUNT(*) FROM idempotency_keys) AS idempotency_keys,    -- Expected: 0
+    (SELECT COUNT(*) FROM subscriptions) AS demo_subscription_count,-- Expected: 1
+    (SELECT COUNT(*) FROM trial_eligibility_ledger) AS demo_ledger_count, -- Expected: 1
+    (SELECT COUNT(*) FROM queue_customers) AS customers,            -- Expected: 0
+    (SELECT COUNT(*) FROM queue_sessions) AS sessions,              -- Expected: 0
+    (SELECT COUNT(*) FROM customer_push_subscriptions) AS pushes,   -- Expected: 0
+    (SELECT COUNT(*) FROM business_category_change_requests) AS cat_reqs, -- Expected: 0
+    (SELECT COUNT(*) FROM business_category_change_audits) AS cat_auds, -- Expected: 0
+    (SELECT COUNT(*) FROM payment_records) AS payments,             -- Expected: 0
+    (SELECT COUNT(*) FROM subscription_seats) AS seats,             -- Expected: 0
+    (SELECT COUNT(*) FROM idempotency_keys) AS idem_keys,           -- Expected: 0
     (SELECT COUNT(*) FROM device_auth_challenges) AS challenges,    -- Expected: 0
     (SELECT COUNT(*) FROM device_replacement_requests) AS replaces, -- Expected: 0
     (SELECT COUNT(*) FROM device_registrations) AS device_regs,     -- Expected: 0
@@ -275,27 +277,74 @@ SELECT
 -- Verify Invariants and Orphaned Records Constraints
 DO $$
 DECLARE
-    v_users_cnt BIGINT;
-    v_shops_cnt BIGINT;
-    v_cust_cnt  BIGINT;
-    v_sess_cnt  BIGINT;
-    v_sse_cnt   BIGINT := 0;
+    v_users_cnt        BIGINT;
+    v_businesses_cnt   BIGINT;
+    v_shops_cnt        BIGINT;
+    v_memberships_cnt  BIGINT;
+    v_subscriptions_cnt BIGINT;
+    v_ledger_cnt       BIGINT;
+
+    v_cust_cnt         BIGINT;
+    v_sess_cnt         BIGINT;
+    v_sse_cnt          BIGINT := 0;
+    v_push_cnt         BIGINT;
+    v_cat_reqs_cnt     BIGINT;
+    v_cat_auds_cnt     BIGINT;
+    v_payments_cnt     BIGINT;
+    v_seats_cnt        BIGINT;
+    v_idem_cnt         BIGINT;
+    v_challenges_cnt   BIGINT;
+    v_replaces_cnt     BIGINT;
+    v_dev_regs_cnt     BIGINT;
+    v_user_sess_cnt    BIGINT;
+    v_audit_cnt        BIGINT;
 BEGIN
+    -- 1. Exactly-One Invariants
     SELECT COUNT(*) INTO v_users_cnt FROM users;
+    SELECT COUNT(*) INTO v_businesses_cnt FROM businesses;
     SELECT COUNT(*) INTO v_shops_cnt FROM shops;
-    SELECT COUNT(*) INTO v_cust_cnt  FROM queue_customers;
-    SELECT COUNT(*) INTO v_sess_cnt  FROM queue_sessions;
+    SELECT COUNT(*) INTO v_memberships_cnt FROM shop_memberships;
+    SELECT COUNT(*) INTO v_subscriptions_cnt FROM subscriptions;
+    SELECT COUNT(*) INTO v_ledger_cnt FROM trial_eligibility_ledger;
+
+    IF v_users_cnt <> 1 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected exactly 1 user, found %', v_users_cnt;
+    END IF;
+    IF v_businesses_cnt <> 1 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected exactly 1 business, found %', v_businesses_cnt;
+    END IF;
+    IF v_shops_cnt <> 1 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected exactly 1 shop, found %', v_shops_cnt;
+    END IF;
+    IF v_memberships_cnt <> 1 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected exactly 1 shop membership, found %', v_memberships_cnt;
+    END IF;
+    IF v_subscriptions_cnt <> 1 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected exactly 1 subscription, found %', v_subscriptions_cnt;
+    END IF;
+    IF v_ledger_cnt <> 1 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected exactly 1 trial eligibility ledger record, found %', v_ledger_cnt;
+    END IF;
+
+    -- 2. Exactly-Zero Invariants (All other application data wiped)
+    SELECT COUNT(*) INTO v_cust_cnt FROM queue_customers;
+    SELECT COUNT(*) INTO v_sess_cnt FROM queue_sessions;
+    SELECT COUNT(*) INTO v_push_cnt FROM customer_push_subscriptions;
+    SELECT COUNT(*) INTO v_cat_reqs_cnt FROM business_category_change_requests;
+    SELECT COUNT(*) INTO v_cat_auds_cnt FROM business_category_change_audits;
+    SELECT COUNT(*) INTO v_payments_cnt FROM payment_records;
+    SELECT COUNT(*) INTO v_seats_cnt FROM subscription_seats;
+    SELECT COUNT(*) INTO v_idem_cnt FROM idempotency_keys;
+    SELECT COUNT(*) INTO v_challenges_cnt FROM device_auth_challenges;
+    SELECT COUNT(*) INTO v_replaces_cnt FROM device_replacement_requests;
+    SELECT COUNT(*) INTO v_dev_regs_cnt FROM device_registrations;
+    SELECT COUNT(*) INTO v_user_sess_cnt FROM user_sessions;
+    SELECT COUNT(*) INTO v_audit_cnt FROM audit_logs;
 
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'sse_tickets') THEN
         EXECUTE 'SELECT COUNT(*) FROM sse_tickets' INTO v_sse_cnt;
     END IF;
 
-    IF v_users_cnt <> 1 THEN
-        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected exactly 1 user, found %', v_users_cnt;
-    END IF;
-    IF v_shops_cnt <> 1 THEN
-        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected exactly 1 shop, found %', v_shops_cnt;
-    END IF;
     IF v_cust_cnt <> 0 THEN
         RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected 0 queue customers, found %', v_cust_cnt;
     END IF;
@@ -304,6 +353,39 @@ BEGIN
     END IF;
     IF v_sse_cnt <> 0 THEN
         RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected 0 sse_tickets, found %', v_sse_cnt;
+    END IF;
+    IF v_push_cnt <> 0 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected 0 customer push subscriptions, found %', v_push_cnt;
+    END IF;
+    IF v_cat_reqs_cnt <> 0 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected 0 category change requests, found %', v_cat_reqs_cnt;
+    END IF;
+    IF v_cat_auds_cnt <> 0 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected 0 category change audits, found %', v_cat_auds_cnt;
+    END IF;
+    IF v_payments_cnt <> 0 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected 0 payment records, found %', v_payments_cnt;
+    END IF;
+    IF v_seats_cnt <> 0 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected 0 subscription seats, found %', v_seats_cnt;
+    END IF;
+    IF v_idem_cnt <> 0 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected 0 idempotency keys, found %', v_idem_cnt;
+    END IF;
+    IF v_challenges_cnt <> 0 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected 0 device auth challenges, found %', v_challenges_cnt;
+    END IF;
+    IF v_replaces_cnt <> 0 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected 0 device replacement requests, found %', v_replaces_cnt;
+    END IF;
+    IF v_dev_regs_cnt <> 0 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected 0 device registrations, found %', v_dev_regs_cnt;
+    END IF;
+    IF v_user_sess_cnt <> 0 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected 0 user sessions, found %', v_user_sess_cnt;
+    END IF;
+    IF v_audit_cnt <> 0 THEN
+        RAISE EXCEPTION 'CLEANUP INVARIANT VIOLATION: Expected 0 audit logs, found %', v_audit_cnt;
     END IF;
 
     RAISE NOTICE 'SUCCESS: All database clean launch invariants verified!';

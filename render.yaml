@@ -46,6 +46,8 @@ services:
         sync: false
       - key: APP_JWT_SECRET
         sync: false
+      - key: PHONE_HMAC_SECRET
+        sync: false
       - key: APP_ADMIN_KEY
         sync: false
       - key: APP_SUPERADMIN_BOOTSTRAP_ENABLED

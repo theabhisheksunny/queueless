@@ -242,4 +242,178 @@ public class CleanLaunchResetSqlPostgresVerificationTest {
             }
         }
     }
+
+    @Test
+    @DisplayName("4. Verify non-owner permission remediation: least privilege SELECT, DELETE without residual membership")
+    void testNonOwnerPermissionRemediation() throws Exception {
+        String dbName = "test_perm_remediation";
+        try (Connection conn = embeddedPostgres.getPostgresDatabase().getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute("CREATE DATABASE " + dbName);
+        }
+
+        DataSource ds = embeddedPostgres.getDatabase("postgres", dbName);
+
+        try (Connection conn = ds.getConnection();
+             Statement stmt = conn.createStatement()) {
+            // Setup roles mimicking Supabase: admin_operator (representing postgres) with CREATEROLE but NOT SUPERUSER
+            stmt.execute("DROP ROLE IF EXISTS migrator_role_4, admin_operator_4");
+            stmt.execute("CREATE ROLE admin_operator_4 WITH LOGIN CREATEROLE NOSUPERUSER");
+            stmt.execute("GRANT ALL ON SCHEMA public TO admin_operator_4");
+
+            // admin_operator creates the migrator role and therefore holds ADMIN OPTION on it
+            stmt.execute("SET ROLE admin_operator_4");
+            stmt.execute("CREATE ROLE migrator_role_4 WITH LOGIN NOSUPERUSER");
+            stmt.execute("RESET ROLE");
+
+            // As migrator_role, create sse_tickets table
+            stmt.execute("GRANT ALL ON SCHEMA public TO migrator_role_4");
+            stmt.execute("SET ROLE migrator_role_4");
+            stmt.execute("CREATE TABLE sse_tickets (ticket VARCHAR(64) PRIMARY KEY, user_id BIGINT, shop_id BIGINT, expires_at TIMESTAMP)");
+            stmt.execute("INSERT INTO sse_tickets VALUES ('t1', 1, 1, CURRENT_TIMESTAMP)");
+            stmt.execute("RESET ROLE");
+
+            // Switch to admin_operator and verify DELETE fails with 42501 (Permission Denied)
+            stmt.execute("SET ROLE admin_operator_4");
+            assertThrows(Exception.class, () -> stmt.execute("DELETE FROM sse_tickets"),
+                    "admin_operator must NOT be permitted to DELETE from sse_tickets prior to grant");
+
+            // Execute the proposed minimal remediation:
+            stmt.execute("GRANT migrator_role_4 TO admin_operator_4");
+            stmt.execute("SET ROLE migrator_role_4");
+            stmt.execute("GRANT SELECT, DELETE ON TABLE public.sse_tickets TO admin_operator_4");
+            stmt.execute("RESET ROLE");
+            stmt.execute("SET ROLE admin_operator_4");
+            stmt.execute("REVOKE migrator_role_4 FROM admin_operator_4");
+
+            // Verify admin_operator can now SELECT and DELETE
+            try (ResultSet rs = stmt.executeQuery("SELECT count(*) FROM sse_tickets")) {
+                assertTrue(rs.next());
+                assertEquals(1, rs.getInt(1));
+            }
+            int deleted = stmt.executeUpdate("DELETE FROM sse_tickets");
+            assertEquals(1, deleted, "DELETE must succeed after granting SELECT, DELETE");
+
+            // Verify admin_operator cannot INSERT (least privilege enforced)
+            assertThrows(Exception.class, () -> stmt.execute("INSERT INTO sse_tickets VALUES ('t2', 1, 1, CURRENT_TIMESTAMP)"),
+                    "admin_operator must NOT have INSERT privilege (least privilege)");
+
+            // Verify zero residual role membership
+            try (ResultSet rs = stmt.executeQuery("""
+                SELECT 1 FROM pg_auth_members am
+                JOIN pg_roles r ON r.oid = am.roleid
+                JOIN pg_roles m ON m.oid = am.member
+                WHERE r.rolname = 'migrator_role_4' AND m.rolname = 'admin_operator_4'
+            """)) {
+                assertFalse(rs.next(), "admin_operator must have ZERO residual role membership in migrator_role");
+            }
+
+            // Verify admin_operator can GRANT again thanks to CREATEROLE / role ownership
+            assertDoesNotThrow(() -> {
+                stmt.execute("GRANT migrator_role_4 TO admin_operator_4");
+                stmt.execute("REVOKE migrator_role_4 FROM admin_operator_4");
+            }, "admin_operator with CREATEROLE must be authorized to GRANT migrator_role again");
+
+            // Verify the exact JSON verification query runs cleanly
+            try (ResultSet rs = stmt.executeQuery("""
+                SELECT 
+                    '1. SELECT COUNT(*)' AS verification_check,
+                    jsonb_build_object(
+                        'can_select', true, 
+                        'current_count', (SELECT COUNT(*) FROM public.sse_tickets)
+                    ) AS result
+                UNION ALL
+                SELECT 
+                    '2. Table Privileges Matrix',
+                    jsonb_build_object(
+                        'can_select', has_table_privilege('admin_operator_4', 'public.sse_tickets', 'SELECT'),
+                        'can_delete', has_table_privilege('admin_operator_4', 'public.sse_tickets', 'DELETE'),
+                        'can_insert', has_table_privilege('admin_operator_4', 'public.sse_tickets', 'INSERT'),
+                        'can_update', has_table_privilege('admin_operator_4', 'public.sse_tickets', 'UPDATE'),
+                        'can_truncate', has_table_privilege('admin_operator_4', 'public.sse_tickets', 'TRUNCATE')
+                    )
+                UNION ALL
+                SELECT 
+                    '3. Table Owner Check',
+                    jsonb_build_object(
+                        'table_name', 'sse_tickets',
+                        'table_owner', (
+                            SELECT pg_get_userbyid(c.relowner) 
+                            FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace 
+                            WHERE n.nspname = 'public' AND c.relname = 'sse_tickets'
+                        )
+                    )
+            """)) {
+                assertTrue(rs.next());
+                assertEquals("1. SELECT COUNT(*)", rs.getString(1));
+                assertTrue(rs.next());
+                assertEquals("2. Table Privileges Matrix", rs.getString(1));
+                assertTrue(rs.next());
+                assertEquals("3. Table Owner Check", rs.getString(1));
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("5. Verify transaction rollback behavior on permission remediation failure")
+    void testRemediationRollbackBehavior() throws Exception {
+        String dbName = "test_rollback_behavior";
+        try (Connection conn = embeddedPostgres.getPostgresDatabase().getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute("CREATE DATABASE " + dbName);
+        }
+
+        DataSource ds = embeddedPostgres.getDatabase("postgres", dbName);
+        try (Connection conn = ds.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute("DROP ROLE IF EXISTS migrator_role_5, admin_operator_5");
+            stmt.execute("CREATE ROLE admin_operator_5 WITH LOGIN CREATEROLE NOSUPERUSER");
+            stmt.execute("GRANT ALL ON SCHEMA public TO admin_operator_5");
+
+            stmt.execute("SET ROLE admin_operator_5");
+            stmt.execute("CREATE ROLE migrator_role_5 WITH LOGIN NOSUPERUSER");
+            stmt.execute("RESET ROLE");
+
+            stmt.execute("GRANT ALL ON SCHEMA public TO migrator_role_5");
+            stmt.execute("SET ROLE migrator_role_5");
+            stmt.execute("CREATE TABLE sse_tickets (ticket VARCHAR(64) PRIMARY KEY)");
+            stmt.execute("RESET ROLE");
+
+            // Execute an aborted transaction where an error occurs mid-way
+            stmt.execute("SET ROLE admin_operator_5");
+            assertThrows(Exception.class, () -> {
+                try (Statement txStmt = conn.createStatement()) {
+                    conn.setAutoCommit(false);
+                    txStmt.execute("GRANT migrator_role_5 TO admin_operator_5");
+                    txStmt.execute("SET ROLE migrator_role_5");
+                    txStmt.execute("GRANT SELECT, DELETE ON TABLE public.sse_tickets TO admin_operator_5");
+                    // Trigger a forced failure before commit
+                    txStmt.execute("SELECT 1 / 0");
+                    conn.commit();
+                } catch (Exception e) {
+                    conn.rollback();
+                    conn.setAutoCommit(true);
+                    throw e;
+                }
+            });
+
+            // Ensure after rollback, admin_operator has NO residual membership and NO SELECT/DELETE privileges
+            stmt.execute("RESET ROLE");
+            stmt.execute("SET ROLE admin_operator_5");
+            assertThrows(Exception.class, () -> stmt.execute("SELECT * FROM sse_tickets"),
+                    "After rollback, admin_operator must NOT have SELECT on sse_tickets");
+            assertThrows(Exception.class, () -> stmt.execute("DELETE FROM sse_tickets"),
+                    "After rollback, admin_operator must NOT have DELETE on sse_tickets");
+
+            // Verify zero residual role membership in pg_auth_members
+            try (ResultSet rs = stmt.executeQuery("""
+                SELECT 1 FROM pg_auth_members am
+                JOIN pg_roles r ON r.oid = am.roleid
+                JOIN pg_roles m ON m.oid = am.member
+                WHERE r.rolname = 'migrator_role_5' AND m.rolname = 'admin_operator_5'
+            """)) {
+                assertFalse(rs.next(), "admin_operator must have ZERO membership after transaction rollback");
+            }
+        }
+    }
 }
